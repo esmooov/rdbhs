@@ -24,7 +24,7 @@ len_enc = fromWord8 0x04
 
 data RDBObj = RDBString B8.ByteString | 
               RDBPair (B8.ByteString,RDBObj) |
-              RDBDatabase Int [RDBObj] |
+              RDBDatabase Integer [RDBObj] |
               RDB [RDBObj]
 
 instance Binary RDBObj where
@@ -40,17 +40,24 @@ getEncoding = (flip shift (-6)) $ (.&.) 0xC0
 get6bitLen :: Word8 -> Integer
 get6bitLen = fromIntegral $ (.&.) 0x3f
 
-loadLen :: B8.ByteString -> Get Integer
+get14bitLen :: Word8 -> Word8 -> Integer
+get14bitLen f s = fromIntegral $ (ms .|. s) where 
+                    ms = shift (a .&. 0x3f) 8
+
+loadLen :: B8.ByteString -> Get (Bool, Integer)
 loadLen = do
           first <- getWord8
           case (getEncoding first) of
             len_6bit -> do
-              return (get6bitLen first)
+              return (False, (get6bitLen first))
             len_14bit -> do
-
+              second <- getWord8
+              return (False, (get14bitLen first second))
             len_32bit -> do
+              len <- getWord32be
+              return (False, (fromIntegral len))
             len_enc -> do
-
+              return (True, (get6bitLen first))
 
 loadObjs :: B8.ByteString -> Get [RDBObj]
 
@@ -60,7 +67,7 @@ getDBs = do
          if opc == opcode_selectdb
            then do
                 skip 1
-                dbnum <- loadLen
+                (isEncType,dbnum) <- loadLen
                 objs <- loadObjs
                 rest <- getDBs
                 return ((RDBDatabase dbnum objs):rest)
