@@ -24,18 +24,25 @@ type_list_ziplist = 0x0a
 type_set_intset =  0x0b 
 type_zset_ziplist = 0x0c
 
+-- Length encodings for types
+
+enc_int8  = 0x00 
+enc_int16 = 0x01
+enc_int32 = 0x02
+enc_lzf   = 0x03  
+
 -- Redis Opcodes
-opcode_eof = fromWord8 0xff
-opcode_selectdb = fromWord8 0xfe
-opcode_expiretime = fromWord8 0xfd
-opcode_expiretimems = fromWord8 0xfc
+opcode_eof = 0xff
+opcode_selectdb = 0xfe
+opcode_expiretime = 0xfd
+opcode_expiretimems = 0xfc
 
 -- Redis Length Codes
 
-len_6bit = fromWord8 0x00
-len_14bit = fromWord8 0x01
-len_32bit = fromWord8 0x02
-len_enc = fromWord8 0x04
+len_6bit = 0x00
+len_14bit = 0x01
+len_32bit = 0x02
+len_enc = 0x04
 
 data RDBObj = RDBString B8.ByteString | 
               RDBPair (B8.ByteString,RDBObj) |
@@ -89,25 +96,53 @@ loadObjs = do
                return ([])
              otherwise -> do
                t <- getWord8
-               key <- loadStringObj
+               key <- loadStringObj False
                obj <- loadObj t
                rest <- loadObjs
                return ((RDBPair (key,obj)):rest)
 
-loadStringObj :: B8.ByteString -> Get B8.ByteString
-loadStringObj = do
-                (isEncType,len) <- loadLen
-                if isEncType
-                  then
-                  else
-                    key <- getBytes len 
-                    return key
+loadIntegerObj :: Integer -> Bool -> B8.ByteString -> Get B8.ByteString
+loadIntegerObj len enc = do
+                         case len of 
+                            enc_int8 -> do
+                              str <- getWord8
+                              return str
+                            enc_int16 ->
+                              str <- getWord16le
+                              return str
+                            enc_int32 ->
+                              str <- getWord32le
+                              return str
+                     
+
+loadStringObj :: Bool -> B8.ByteString -> Get B8.ByteString
+loadStringObj enc = do
+                    (isEncType,len) <- loadLen
+                    if isEncType
+                      then
+                        case len of
+                          enc_int8 -> do
+                            str <- loadIntegerObj len enc
+                            return str
+                          enc_int16 ->
+                            str <- loadIntegerObj len enc
+                            return str
+                          enc_int32 ->
+                            str <- loadIntegerObj len enc
+                            return str
+                          enc_lzf ->
+                            -- str <- loadLzfStringObj
+                            str <- loadIntegerObj len enc
+                            return str
+                      else
+                        str <- getBytes len 
+                        return str
 
 loadObj :: Word8 -> B8.ByteString -> Get RDBObj
 loadObj t = do
             case t of
               type_string -> do
-                obj <- loadStringObj
+                obj <- loadStringObj True
                 return (RDBString obj)
           
 
