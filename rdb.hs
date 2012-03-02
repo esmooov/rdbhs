@@ -9,13 +9,28 @@ import Data.Binary.Get
 
 redis_header = fromByteString $ B8.pack "REDIS0003"
 
-{-Redis Opcodes-}
+-- Redis types
+
+type_string = 0x00
+type_list = 0x01
+type_set  = 0x02
+type_zset = 0x03
+type_hash = 0x04
+
+-- Encoded types
+
+type_hash_zipmap = 0x09
+type_list_ziplist = 0x0a
+type_set_intset =  0x0b 
+type_zset_ziplist = 0x0c
+
+-- Redis Opcodes
 opcode_eof = fromWord8 0xff
 opcode_selectdb = fromWord8 0xfe
 opcode_expiretime = fromWord8 0xfd
 opcode_expiretimems = fromWord8 0xfc
 
-{- Redis Length Codes -}
+-- Redis Length Codes
 
 len_6bit = fromWord8 0x00
 len_14bit = fromWord8 0x01
@@ -60,6 +75,41 @@ loadLen = do
               return (True, (get6bitLen first))
 
 loadObjs :: B8.ByteString -> Get [RDBObj]
+loadObjs = do
+           code <- lookAhead $ getWord8
+           case code of
+             -- Handle these correctly
+             opcode_expiretime -> do
+               return ([])
+             opcode_expiretimems -> do
+               return ([])
+             opcode_selectdb -> do
+               return ([])
+             opcode_eof -> do
+               return ([])
+             otherwise -> do
+               t <- getWord8
+               key <- loadStringObj
+               obj <- loadObj t
+               rest <- loadObjs
+               return ((RDBPair (key,obj)):rest)
+
+loadStringObj :: B8.ByteString -> Get B8.ByteString
+loadStringObj = do
+                (isEncType,len) <- loadLen
+                if isEncType
+                  then
+                  else
+                    key <- getBytes len 
+                    return key
+
+loadObj :: Word8 -> B8.ByteString -> Get RDBObj
+loadObj t = do
+            case t of
+              type_string -> do
+                obj <- loadStringObj
+                return (RDBString obj)
+          
 
 getDBs :: B8.ByteString -> Get [RDBObj]
 getDBs = do
