@@ -1,13 +1,15 @@
 {- LANGUAGE OverloadedStrings, GADTs, KindSignatures, TypeFamilies -}
 
 import Blaze.ByteString.Builder
+import Data.Word
 import Data.Bits
 import qualified Data.ByteString.Char8 as B8
+import qualified Data.ByteString.Lazy.Char8 as BL8
 import Data.Monoid
 import Data.Binary
 import Data.Binary.Get
 
-redis_header = fromByteString $ B8.pack "REDIS0003"
+redis_header = BL8.pack "REDIS0003"
 
 -- Redis types
 
@@ -44,10 +46,10 @@ len_14bit = 0x01
 len_32bit = 0x02
 len_enc = 0x04
 
-data RDBObj = RDBString B8.ByteString | 
-              RDBPair (B8.ByteString,RDBObj) |
+data RDBObj = RDBString BL8.ByteString | 
+              RDBPair (BL8.ByteString,RDBObj) |
               RDBDatabase Integer [RDBObj] |
-              RDB [RDBObj]
+              RDB [RDBObj] deriving (Show)
 
 instance Binary RDBObj where
   get = do
@@ -57,88 +59,87 @@ instance Binary RDBObj where
         return (RDB dbs)
 
 getEncoding :: Word8 -> Word8
-getEncoding = (flip shift (-6)) $ (.&.) 0xC0
+getEncoding = (flip shift (-6)) . (.&.) 0xC0
 
 get6bitLen :: Word8 -> Integer
-get6bitLen = fromIntegral $ (.&.) 0x3f
+get6bitLen = fromIntegral . (.&.) 0x3f
 
 get14bitLen :: Word8 -> Word8 -> Integer
 get14bitLen f s = fromIntegral $ (ms .|. s) where 
-                    ms = shift (a .&. 0x3f) 8
+                    ms = shift (f .&. 0x3f) 8
 
-loadLen :: B8.ByteString -> Get (Bool, Integer)
+loadLen :: Get (Bool, Integer)
 loadLen = do
           first <- getWord8
           case (getEncoding first) of
-            len_6bit -> do
+            0x00 -> do
               return (False, (get6bitLen first))
-            len_14bit -> do
+            0x01 -> do
               second <- getWord8
               return (False, (get14bitLen first second))
-            len_32bit -> do
+            0x02 -> do
               len <- getWord32be
               return (False, (fromIntegral len))
-            len_enc -> do
+            0x03 -> do
               return (True, (get6bitLen first))
 
-loadObjs :: B8.ByteString -> Get [RDBObj]
+loadObjs :: Get [RDBObj]
 loadObjs = do
            code <- lookAhead $ getWord8
            case code of
              -- Handle these correctly
-             opcode_expiretime -> do
+             0xfd -> do
                return ([])
-             opcode_expiretimems -> do
+             0xfc -> do
                return ([])
-             opcode_selectdb -> do
+             0xfe -> do
                return ([])
-             opcode_eof -> do
+             0xff -> do
                return ([])
-             otherwise -> do
+             _ -> do
                t <- getWord8
                key <- loadStringObj False
                obj <- loadObj t
                rest <- loadObjs
                return ((RDBPair (key,obj)):rest)
 
-loadIntegerObj :: Integer -> Bool -> B8.ByteString -> Get B8.ByteString
+loadIntegerObj :: Integer -> Bool -> Get BL8.ByteString
 loadIntegerObj len enc = do
                          case len of 
-                            enc_int8 -> do
+                            0x00 -> do
                               str <- getWord8
-                              return str
-                            enc_int16 ->
+                              return $ BL8.pack $ show str
+                            0x01 -> do
                               str <- getWord16le
-                              return str
-                            enc_int32 ->
+                              return $ BL8.pack $ show str
+                            0x02 -> do
                               str <- getWord32le
-                              return str
+                              return $ BL8.pack $ show str
                      
 
-loadStringObj :: Bool -> B8.ByteString -> Get B8.ByteString
-loadStringObj enc = do
+loadStringObj :: Bool -> Get BL8.ByteString
+loadStringObj enc = do 
                     (isEncType,len) <- loadLen
                     if isEncType
-                      then
-                        case len of
-                          enc_int8 -> do
-                            str <- loadIntegerObj len enc
-                            return str
-                          enc_int16 ->
-                            str <- loadIntegerObj len enc
-                            return str
-                          enc_int32 ->
-                            str <- loadIntegerObj len enc
-                            return str
-                          enc_lzf ->
-                            -- str <- loadLzfStringObj
-                            str <- loadIntegerObj len enc
-                            return str
-                      else
-                        str <- getBytes len 
-                        return str
+                    then do
+                      case len of
+                        0x00 -> do
+                          str <- loadIntegerObj len enc
+                          return str
+                        0x01 -> do
+                          str <- loadIntegerObj len enc
+                          return str
+                        0x02 -> do
+                          str <- loadIntegerObj len enc
+                          return str
+                        0x03 -> do
+                          str <- loadIntegerObj len enc
+                          return str
+                    else do
+                      str <- getLazyByteString (fromIntegral len)
+                      return str
 
-loadObj :: Word8 -> B8.ByteString -> Get RDBObj
+loadObj :: Word8 -> Get RDBObj
 loadObj t = do
             case t of
               type_string -> do
@@ -146,7 +147,7 @@ loadObj t = do
                 return (RDBString obj)
           
 
-getDBs :: B8.ByteString -> Get [RDBObj]
+getDBs :: Get [RDBObj]
 getDBs = do
          opc <- lookAhead $ getWord8
          if opc == opcode_selectdb
@@ -161,5 +162,7 @@ getDBs = do
 {-output = toByteString $ mconcat [redis_header, redis_eof]-}
 
 main = do 
-       testf <- B8.readFile "/usr/local/etc/dumb.rdb"
+       testf <- BL8.readFile "/usr/local/etc/dump.rdb"
+       print $ show (decode testf :: RDBObj)
+
         
