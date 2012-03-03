@@ -8,6 +8,7 @@ import qualified Data.ByteString.Lazy.Char8 as BL8
 import Data.Monoid
 import Data.Binary
 import Data.Binary.Get
+import Control.Monad
 
 redis_header = BL8.pack "REDIS0003"
 
@@ -47,6 +48,7 @@ len_32bit = 0x02
 len_enc = 0x04
 
 data RDBObj = RDBString BL8.ByteString | 
+              RDBList [BL8.ByteString] |
               RDBPair (BL8.ByteString,RDBObj) |
               RDBDatabase Integer [RDBObj] |
               RDB [RDBObj] deriving (Show)
@@ -60,6 +62,9 @@ instance Binary RDBObj where
 
 getEncoding :: Word8 -> Word8
 getEncoding = (flip shift (-6)) . (.&.) 0xC0
+
+getSecondEncoding :: Word8 -> Word8
+getSecondEncoding = (flip shift (-4)) . (.&.) 0x30
 
 get6bitLen :: Word8 -> Integer
 get6bitLen = fromIntegral . (.&.) 0x3f
@@ -124,28 +129,83 @@ loadStringObj enc = do
                     then do
                       case len of
                         0x00 -> do
-                          str <- loadIntegerObj len enc
-                          return str
+                          loadIntegerObj len enc
                         0x01 -> do
-                          str <- loadIntegerObj len enc
-                          return str
+                          loadIntegerObj len enc
                         0x02 -> do
-                          str <- loadIntegerObj len enc
-                          return str
+                          loadIntegerObj len enc
                         0x03 -> do
-                          str <- loadIntegerObj len enc
-                          return str
+                          loadIntegerObj len enc
                     else do
-                      str <- getLazyByteString (fromIntegral len)
-                      return str
+                      getLazyByteString (fromIntegral len)
+
+loadListObj :: Get [BL8.ByteString]
+loadListObj = do
+              (isEncType,len) <- loadLen
+              sequence $ replicate (fromIntegral len) (loadStringObj True)
+
+loadZipListObj :: Get [BL8.ByteString]
+loadZipListObj = do
+                 len <- getWord32le
+                 offset <- getWord32le
+                 num_entries <- getWord16le
+                 obj <- loadZipListMembers
+                 eoz <- getWord8
+                 return obj
+
+loadZipListMembers :: Get [BL8.ByteString]
+loadZipListmembers = do
+                     opc <- lookAhead $ getWord8
+                     if opc == opcode_eof
+                       then return []
+                       else do
+                            obj <- getZipListMember
+                            rest <- loadZipListMembers
+                            return (obj:rest)
+                            
+getZipListMember :: Get BL8.ByteString
+getZipListMember = do
+                   prevLen <- getWord8
+                   if getWord8 == 0xfe
+                     then do
+                       fullPrevLen <- getWord32le
+                     else do
+                       let fullPrevLen = prevLen
+                   header <- getWord8
+                   case ((getEncoding header),(getSecondEncoding header)) of
+                     (0x00,_) -> do
+                       let len = get6bitLen header
+                       getLazyByteString (fromIntegral len)
+                     (0x01,_) -> do
+                       second_part <- getWord8
+                       let len = get14bitLen header second_part
+                       getLazyByteString (fromIntegral len)
+                     (0x02,_) -> do
+                       len <- getWord32be
+                       getLazyByteString (fromIntegral len)
+                     (0x03,0x00) -> do
+                       obj <- getWord16le
+                       return $ BL8.pack $ show (fromIntegral obj :: Int16)
+                     (0x03,0x01) -> do
+                       obj <- getWord32le
+                       return $ BL8.pack $ show (fromIntegral obj :: Int32)
+                     (0x03,0x02) -> do
+                       obj <- getWord64le
+                       return $ BL8.pack $ show (fromIntegral obj :: Int64)
+                     
 
 loadObj :: Word8 -> Get RDBObj
 loadObj t = do
             case t of
-              type_string -> do
+              0x00 -> do
                 obj <- loadStringObj True
                 return (RDBString obj)
-          
+              0x01 -> do
+                obj <- loadListObj
+                return (RDBList obj)
+              0x0a -> do
+                obj <- loadZipListObj
+                return (RDBList obj)          
 
 getDBs :: Get [RDBObj]
 getDBs = do
@@ -162,7 +222,7 @@ getDBs = do
 {-output = toByteString $ mconcat [redis_header, redis_eof]-}
 
 main = do 
-       testf <- BL8.readFile "/usr/local/etc/dump.rdb"
+       testf <- BL8.readFile "./dump.rdb"
        print $ show (decode testf :: RDBObj)
 
         
