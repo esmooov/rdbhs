@@ -2,6 +2,7 @@
 
 import Blaze.ByteString.Builder
 import Data.Word
+import Data.Int
 import Data.Bits
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Lazy.Char8 as BL8
@@ -9,6 +10,7 @@ import Data.Monoid
 import Data.Binary
 import Data.Binary.Get
 import Control.Monad
+import Debug.Trace
 
 redis_header = BL8.pack "REDIS0003"
 
@@ -146,7 +148,8 @@ loadListObj = do
 
 loadZipListObj :: Get [BL8.ByteString]
 loadZipListObj = do
-                 len <- getWord32le
+                 (isEncType,len) <- loadLen
+                 ziplen <- getWord32le
                  offset <- getWord32le
                  num_entries <- getWord16le
                  obj <- loadZipListMembers
@@ -154,9 +157,9 @@ loadZipListObj = do
                  return obj
 
 loadZipListMembers :: Get [BL8.ByteString]
-loadZipListmembers = do
+loadZipListMembers = do
                      opc <- lookAhead $ getWord8
-                     if opc == opcode_eof
+                     if opc == 0xff
                        then return []
                        else do
                             obj <- getZipListMember
@@ -165,12 +168,7 @@ loadZipListmembers = do
                             
 getZipListMember :: Get BL8.ByteString
 getZipListMember = do
-                   prevLen <- getWord8
-                   if getWord8 == 0xfe
-                     then do
-                       fullPrevLen <- getWord32le
-                     else do
-                       let fullPrevLen = prevLen
+                   prevLen <- getZipLen
                    header <- getWord8
                    case ((getEncoding header),(getSecondEncoding header)) of
                      (0x00,_) -> do
@@ -192,6 +190,16 @@ getZipListMember = do
                      (0x03,0x02) -> do
                        obj <- getWord64le
                        return $ BL8.pack $ show (fromIntegral obj :: Int64)
+
+getZipLen :: Get Integer
+getZipLen = do
+            prevLen <- getWord8
+            case prevLen of
+              0xfe -> do
+                len <- getWord32le
+                return (fromIntegral len)
+              _ -> do
+                return (fromIntegral prevLen)
                      
 
 loadObj :: Word8 -> Get RDBObj
