@@ -48,7 +48,7 @@ If the string is an encoded type with either a 8, 16, or 32-bit encoding type, t
 
 If the string is encoded with both bits set, it is loaded as an lzf compressed string, as described below.
 
-If the string is not an encoded type, it is saved as the next [length] bytes.
+If the string is not an encoded type, it is loaded as a bytestring consisting of the next [length] bytes.
 
 ## Special-encodings for length
 
