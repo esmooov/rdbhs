@@ -53,6 +53,7 @@ data RDBObj = RDBString BL8.ByteString |
               RDBList [BL8.ByteString] |
               RDBSet [BL8.ByteString] |
               RDBZSet [(BL8.ByteString,Double)] |
+              RDBHash [(BL8.ByteString,BL8.ByteString)] |
               RDBPair (BL8.ByteString,RDBObj) |
               RDBDatabase Integer [RDBObj] |
               RDB [RDBObj] deriving (Show)
@@ -252,7 +253,54 @@ loadIntSetMember enc = do
                             obj <- getWord64le
                             return $ BL8.pack $ show obj
 
-                       
+loadHashObj :: Get [(BL8.ByteString,BL8.ByteString)]
+loadHashObj = do
+              (isEncType,len) <- loadLen
+              sequence $ replicate (fromIntegral len) loadHashMember
+
+loadHashMember :: Get (BL8.ByteString,BL8.ByteString)
+loadHashMember = do
+                 key <- loadStringObj True
+                 value <- loadStringObj True
+                 return (key,value)
+
+loadZipMapObj :: Get [(BL8.ByteString,BL8.ByteString)]
+loadZipMapObj = do
+                (isEncType,len) <- loadLen
+                zmlen <- getWord8
+                loadZipMapMembers
+
+loadZipMapMembers :: Get [(BL8.ByteString,BL8.ByteString)]
+loadZipMapMembers = do
+                    is_eoz <- lookAhead $ getWord8
+                    case is_eoz of
+                      0xff -> do return []
+                      _ -> do
+                        obj <- loadZipMapMember
+                        rest <- loadZipMapMembers
+                        return (obj:rest)
+
+loadZipMapMember :: Get (BL8.ByteString,BL8.ByteString)
+loadZipMapMember = do
+                   first_len <- getWord8
+                   key_len <- getZipMapMemberLen first_len
+                   key <- getLazyByteString (fromIntegral key_len)
+                   first_len_v <- getWord8
+                   val_len <- getZipMapMemberLen first_len_v
+                   free <- getWord8
+                   val <- getLazyByteString val_len
+                   return (key,val)
+
+getZipMapMemberLen :: Word8 -> Get Int64
+getZipMapMemberLen first_len = do                   
+                               case first_len of 
+                                 0xfd -> do
+                                   l <- getWord32host
+                                   return (fromIntegral l)
+                                 0xfe -> do
+                                   return (fromIntegral 0xfe)
+                                 l -> do
+                                   return (fromIntegral l)
 
 loadObj :: Word8 -> Get RDBObj
 loadObj t = do
@@ -273,6 +321,14 @@ loadObj t = do
               0x03 -> do
                 obj <- loadZSetObj
                 return (RDBZSet $ obj)
+              -- ^ Load a hash value
+              0x04 -> do
+                obj <- loadHashObj
+                return (RDBHash $ obj)
+              -- ^ Load a zipmap encoded hash
+              0x09 -> do
+                obj <- loadZipMapObj
+                return (RDBHash obj)
               -- ^ Load a ziplist encoded list
               0x0a -> do
                 obj <- loadZipListObj
