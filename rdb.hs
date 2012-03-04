@@ -52,7 +52,7 @@ len_enc = 0x04
 data RDBObj = RDBString BL8.ByteString | 
               RDBList [BL8.ByteString] |
               RDBSet [BL8.ByteString] |
-              RDBZSet [(BL8.ByteString,BL8.ByteString)] |
+              RDBZSet [(BL8.ByteString,Double)] |
               RDBPair (BL8.ByteString,RDBObj) |
               RDBDatabase Integer [RDBObj] |
               RDB [RDBObj] deriving (Show)
@@ -64,9 +64,9 @@ instance Binary RDBObj where
         eof <- getWord8
         return (RDB dbs)
 
-toPairs :: [a] -> [(a,a)]
-toPairs [] = []
-toPairs l = (x,y):(toPairs xs) where
+toZsetPairs :: [BL8.ByteString] -> [(BL8.ByteString,Double)]
+toZsetPairs [] = []
+toZsetPairs l = (x,(read $ BL8.unpack y)):(toZsetPairs xs) where
             ((x:y:[]),xs) = splitAt 2 l
 
 getEncoding :: Word8 -> Word8
@@ -130,18 +130,19 @@ loadIntegerObj len enc = do
                               str <- getWord32le
                               return $ BL8.pack $ show str
 
-loadDoubleValue :: Get BL8.ByteString
+loadDoubleValue :: Get Double
 loadDoubleValue = do
                   len <- getWord8
                   case len of
                     0xff -> do
-                      return $ BL8.pack "-Inf"
+                      return $ read "-Infinity"
                     0xfe -> do
-                      return $ BL8.pack "+Inf"
+                      return $ read "Infinity"
                     0xfd -> do
-                      return $ BL8.pack "NaN"
+                      return $ read "NaN"
                     l -> do
-                      getLazyByteString (fromIntegral l)
+                      val <- getLazyByteString (fromIntegral l)
+                      return $ read $ BL8.unpack val
 
 loadStringObj :: Bool -> Get BL8.ByteString
 loadStringObj enc = do 
@@ -165,13 +166,13 @@ loadListObj = do
               (isEncType,len) <- loadLen
               sequence $ replicate (fromIntegral len) (loadStringObj True)
 
-loadZSetPair :: Get (BL8.ByteString, BL8.ByteString)
+loadZSetPair :: Get (BL8.ByteString, Double)
 loadZSetPair = do
                value <- loadStringObj True
                weight <- loadDoubleValue
                return (value,weight)
 
-loadZSetObj :: Get [(BL8.ByteString,BL8.ByteString)]
+loadZSetObj :: Get [(BL8.ByteString,Double)]
 loadZSetObj = do
               (isEncType,len) <- loadLen
               sequence $ replicate (fromIntegral len) loadZSetPair
@@ -283,7 +284,7 @@ loadObj t = do
               -- ^ Load a ziplist encoded zset
               0x0c -> do
                 obj <- loadZipListObj
-                return (RDBZSet $ toPairs obj)
+                return (RDBZSet $ toZsetPairs obj)
 
 
 getDBs :: Get [RDBObj]
