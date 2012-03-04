@@ -51,6 +51,7 @@ len_enc = 0x04
 
 data RDBObj = RDBString BL8.ByteString | 
               RDBList [BL8.ByteString] |
+              RDBSet [BL8.ByteString] |
               RDBPair (BL8.ByteString,RDBObj) |
               RDBDatabase Integer [RDBObj] |
               RDB [RDBObj] deriving (Show)
@@ -200,7 +201,28 @@ getZipLen = do
                 return (fromIntegral len)
               _ -> do
                 return (fromIntegral prevLen)
-                     
+
+loadIntSetObj :: Get [BL8.ByteString]
+loadIntSetObj = do
+                (isEncType,len) <- loadLen
+                enc <- getWord32le
+                setlen <- getWord32le
+                sequence $ replicate (fromIntegral setlen) (loadIntSetMember enc)
+
+loadIntSetMember :: Word32 -> Get BL8.ByteString
+loadIntSetMember enc = do 
+                       case enc of
+                         0x02 -> do
+                            obj <- getWord16le
+                            return $ BL8.pack $ show obj
+                         0x04 -> do
+                            obj <- getWord32le
+                            return $ BL8.pack $ show obj
+                         0x08 -> do
+                            obj <- getWord64le
+                            return $ BL8.pack $ show obj
+
+                       
 
 loadObj :: Word8 -> Get RDBObj
 loadObj t = do
@@ -211,9 +233,15 @@ loadObj t = do
               0x01 -> do
                 obj <- loadListObj
                 return (RDBList obj)
+              0x02 -> do
+                obj <- loadListObj
+                return (RDBList obj)
               0x0a -> do
                 obj <- loadZipListObj
                 return (RDBList obj)          
+              0x0b -> do
+                obj <- loadIntSetObj
+                return (RDBSet obj)
 
 getDBs :: Get [RDBObj]
 getDBs = do
