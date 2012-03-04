@@ -52,6 +52,7 @@ len_enc = 0x04
 data RDBObj = RDBString BL8.ByteString | 
               RDBList [BL8.ByteString] |
               RDBSet [BL8.ByteString] |
+              RDBZSet [(BL8.ByteString,BL8.ByteString)] |
               RDBPair (BL8.ByteString,RDBObj) |
               RDBDatabase Integer [RDBObj] |
               RDB [RDBObj] deriving (Show)
@@ -62,6 +63,11 @@ instance Binary RDBObj where
         dbs <- getDBs
         eof <- getWord8
         return (RDB dbs)
+
+toPairs :: [a] -> [(a,a)]
+toPairs [] = []
+toPairs l = (x,y):(toPairs xs) where
+            ((x:y:[]),xs) = splitAt 2 l
 
 getEncoding :: Word8 -> Word8
 getEncoding = (flip shift (-6)) . (.&.) 0xC0
@@ -123,7 +129,19 @@ loadIntegerObj len enc = do
                             0x02 -> do
                               str <- getWord32le
                               return $ BL8.pack $ show str
-                     
+
+loadDoubleValue :: Get BL8.ByteString
+loadDoubleValue = do
+                  len <- getWord8
+                  case len of
+                    0xff -> do
+                      return $ BL8.pack "-Inf"
+                    0xfe -> do
+                      return $ BL8.pack "+Inf"
+                    0xfd -> do
+                      return $ BL8.pack "NaN"
+                    l -> do
+                      getLazyByteString (fromIntegral l)
 
 loadStringObj :: Bool -> Get BL8.ByteString
 loadStringObj enc = do 
@@ -146,6 +164,17 @@ loadListObj :: Get [BL8.ByteString]
 loadListObj = do
               (isEncType,len) <- loadLen
               sequence $ replicate (fromIntegral len) (loadStringObj True)
+
+loadZSetPair :: Get (BL8.ByteString, BL8.ByteString)
+loadZSetPair = do
+               value <- loadStringObj True
+               weight <- loadDoubleValue
+               return (value,weight)
+
+loadZSetObj :: Get [(BL8.ByteString,BL8.ByteString)]
+loadZSetObj = do
+              (isEncType,len) <- loadLen
+              sequence $ replicate (fromIntegral len) loadZSetPair
 
 loadZipListObj :: Get [BL8.ByteString]
 loadZipListObj = do
@@ -227,21 +256,35 @@ loadIntSetMember enc = do
 loadObj :: Word8 -> Get RDBObj
 loadObj t = do
             case t of
+              -- ^ Load a string value
               0x00 -> do
                 obj <- loadStringObj True
                 return (RDBString obj)
+              -- ^ Load a list value
               0x01 -> do
                 obj <- loadListObj
                 return (RDBList obj)
+              -- ^ Load a set value
               0x02 -> do
                 obj <- loadListObj
-                return (RDBList obj)
+                return (RDBSet obj)
+              -- ^ Load a sorted set value
+              0x03 -> do
+                obj <- loadZSetObj
+                return (RDBZSet $ obj)
+              -- ^ Load a ziplist encoded list
               0x0a -> do
                 obj <- loadZipListObj
                 return (RDBList obj)          
+              -- ^ Load an intset encoded set
               0x0b -> do
                 obj <- loadIntSetObj
                 return (RDBSet obj)
+              -- ^ Load a ziplist encoded zset
+              0x0c -> do
+                obj <- loadZipListObj
+                return (RDBZSet $ toPairs obj)
+
 
 getDBs :: Get [RDBObj]
 getDBs = do
