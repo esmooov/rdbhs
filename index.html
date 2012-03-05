@@ -1,88 +1,115 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset='utf-8'>
-
-  <title>esmooov/rdbhs @ GitHub</title>
-
-  <style type="text/css">
-    body {
-      margin-top: 1.0em;
-      background-color: #48aed5;
-      font-family: Helvetica, Arial, FreeSans, san-serif;
-      color: #000000;
-    }
-    #container {
-      margin: 0 auto;
-      width: 700px;
-    }
-    h1 { font-size: 3.8em; color: #b7512a; margin-bottom: 3px; }
-    h1 .small { font-size: 0.4em; }
-    h1 a { text-decoration: none }
-    h2 { font-size: 1.5em; color: #b7512a; }
-    h3 { text-align: center; color: #b7512a; }
-    a { color: #b7512a; }
-    .description { font-size: 1.2em; margin-bottom: 30px; margin-top: 30px; font-style: italic;}
-    .download { float: right; }
-    pre { background: #000; color: #fff; padding: 15px;}
-    hr { border: 0; width: 80%; border-bottom: 1px solid #aaa}
-    .footer { text-align:center; padding-top:30px; font-style: italic; }
-  </style>
-</head>
-
-<body>
-  <a href="https://github.com/esmooov/rdbhs"><img style="position: absolute; top: 0; right: 0; border: 0;" src="http://s3.amazonaws.com/github/ribbons/forkme_right_darkblue_121621.png" alt="Fork me on GitHub" /></a>
-
-  <div id="container">
-
-    <div class="download">
-      <a href="https://github.com/esmooov/rdbhs/zipball/master">
-        <img border="0" width="90" src="https://github.com/images/modules/download/zip.png"></a>
-      <a href="https://github.com/esmooov/rdbhs/tarball/master">
-        <img border="0" width="90" src="https://github.com/images/modules/download/tar.png"></a>
-    </div>
-
-    <h1><a href="https://github.com/esmooov/rdbhs">rdbhs</a>
-      <span class="small">by <a href="https://github.com/esmooov">esmooov</a></span></h1>
-
-    <div class="description">
-      
-    </div>
-
-    
-
-    
-
-    
-
-    
-
-    
-      <h2>Authors</h2>
-      <p>Erik Hinton (Erik.Hinton@nytimes.com)<br/>      </p>
-    
-
-    
-      <h2>Contact</h2>
-      <p> (twotonmary@gmail.com)<br/>      </p>
-    
-
-    <h2>Download</h2>
-    <p>
-      You can download this project in either
-      <a href="https://github.com/esmooov/rdbhs/zipball/master">zip</a> or
-      <a href="https://github.com/esmooov/rdbhs/tarball/master">tar formats.
-    </p>
-    <p>You can also clone the project with <a href="http://git-scm.com">Git</a>
-      by running:
-      <pre>$ git clone git://github.com/esmooov/rdbhs</pre>
-    </p>
-
-    <div class="footer">
-      get the source code on GitHub : <a href="https://github.com/esmooov/rdbhs">esmooov/rdbhs</a>
-    </div>
-
-  </div>
-
-</body>
-</html>
+<h2>Format layout</h2>
+<p>An rdb file begins with &#8220;REDIS0003&#8221; encoded as a bytestring. [9 bytes]</p>
+<hr />
+<p>For each database in the dump</p>
+<ol>
+	<li>The first byte is the SELECT_DB opcode (0xfe) [1 byte]</li>
+	<li>The second byte is the length-encode database number (See below) [1-4 byte(s)]</li>
+	<li>For each key-value pair in the database:
+	<ol>
+		<li>If the object has an expire time:</li>
+		<li>The first byte is the <span class="caps">EXPIRETIME</span> opcode (0xfd) or, in Redis 2.6+, EXPIRETIME_MS opcode (0xfc)</li>
+		<li>What follows is the expire time in seconds or, in Redis 2.6+, in ms (See below)</li>
+	</ol></li>
+	<li>The first byte is the object type (See below for list of object type opcodes)</li>
+	<li>Then, the string-encoded key for the object (See below)</li>
+	<li>Then, the object itself, specially encoded for its type (See below)</li>
+</ol>
+<hr />
+<p>An rdb file ends with the <span class="caps">EOF</span> opcode (0xff) [1 byte]</p>
+<h2>Length-encoding</h2>
+<p>The first two most-significant bits hold the encoding type</p>
+<ol>
+	<li>Less than 64 (00)</li>
+	<li>Less than 16,384 (01)</li>
+	<li>32-bit integer (10)</li>
+	<li>Special encoding (11)</li>
+</ol>
+<p>The remaining bits hold the length (or, in the last case, encoding type) to be encoded (marked below as X&#8217;s)</p>
+<ol>
+	<li>(00) | <span class="caps">XXXXXX</span> [1 byte total]</li>
+	<li>(01) | <span class="caps">XXXXXX</span> <span class="caps">XXXXXXXX</span> [2 bytes total]</li>
+	<li>(10) | 000000 <span class="caps">XXXXXXXX</span> <span class="caps">XXXXXXXX</span> <span class="caps">XXXXXXXX</span> <span class="caps">XXXXXXXX</span> [5 bytes total]</li>
+	<li>(11) | <span class="caps">XXXXXX</span> [1 byte total]</li>
+</ol>
+<h2>String objects</h2>
+<p>The first 1-5 bytes of a string object contains the length of the string object and whether or not it is an encoded string, as described in the length-encoding section above.</p>
+<p>If the string is an encoded type with either a 8, 16, or 32-bit encoding type, the string is loaded as an integer, as described above in the integer-loading section, and converted to a string.</p>
+<p>If the string is encoded with both bits set, it is loaded as an lzf compressed string, as described below.</p>
+<p>If the string is not an encoded type, it is loaded as a bytestring consisting of the next [length] bytes.</p>
+<h2>Special-encodings for length</h2>
+<p>If a length-encoded byte has its most-significant two bits set, the remaining 6 bytes will contain either a 0,1,2 or 3.</p>
+<ol>
+	<li>A zero means the value following the length is encoded as an 8-bit integer.</li>
+	<li>A one means the value following the length is encoded as an 16-bit integer.</li>
+	<li>A two means the value following the length is encoded as an 32-bit integer.</li>
+	<li>A three means the value following the length is encoded as an lzf compressed string.</li>
+</ol>
+<h2>Ziplist</h2>
+<p>(Note: I was unable to find whether the endiannesses listed below as little-endian encodings were always litle-endian or whether they are stored as host byte order.)</p>
+<p>Ziplists are space-efficient special encodings for lists and sorted sets. The max number of members and max size for the ziplist encoding is set in the conf file that the Redis server reads when starting.</p>
+<p>The first 4 bytes store the number of bytes in the ziplist</p>
+<p>The next 4 bytes store the offset (in bytes) to the end of the last entry in the list</p>
+<p>The next 2 bytes store the number of members of the ziplist</p>
+<p>The remaining n-1 bytes of the ziplist store a sequence of members. If the ziplist is encoding a sorted set, the members should be parsed as value, score pairs.</p>
+<p>The structure of every ziplist member is as follows:</p>
+<ol>
+	<li>First, is the number of bytes of the previous member in the ziplist. If this byte is less than 0xfe, the length is stored as a single byte. If the first byte is set to 0xfe, the next four bytes will hold the length of the previous member.</li>
+	<li>Next, is the encoding and length of the current member of the ziplist. This is similar, though not exactly the same, to the way the lengths and encodings of <span class="caps">RDB</span> objects are stored.
+	<ol>
+		<li>If the first two most-significant bits are set to zero (00), the ziplist member is encoded as an n-bytes long string where n is the value of the remaining 6 bits. (00|<span class="caps">XXXXXX</span>)</li>
+		<li>If the first two most-significant bits are set to one (01), the ziplist member is encoded as an n-bytes long string where n is the conjunction of remaining 6 bits shifted left 8 bytes and the next byte (01|<span class="caps">XXXXXX</span> <span class="caps">XXXXXXXX</span>)</li>
+		<li>If the first two most-significant bits are set to two (10), the ziplist member is encoded as an n-bytes long string where n is the conjunction of remaining 6 bits shifted left 16 bytes and the next two bytes (01|<span class="caps">XXXXXX</span> <span class="caps">XXXXXXXX</span> <span class="caps">XXXXXXXX</span>).</li>
+		<li>If the first two most-significant bits are set to three and the next two bits are set to zero (1100), the ziplist member is encoded as an int16t (2 bytes).</li>
+		<li>If the first two most-significant bits are set to three and the next two bits are set to one (1101), the ziplist member is encoded as an int32t (4 bytes).</li>
+		<li>If the first two most-significant bits are set to three and the next two bits are set to two (1110), the ziplist member is encoded as an int64t (8 bytes).</li>
+	</ol></li>
+	<li>Finally, comes the value specified by the encoding and length</li>
+</ol>
+<p>Every ziplist terminates with a 0xff byte</p>
+<p>Example (encoding the very silly list [1,1]):</p>
+<p>[13 00 00 00] &#8594; Little-endian 32-bit length (in bytes) of ziplist</p>
+<p>[0e 00 00 00] &#8594; little-endian 32-bit offset (in bytes) to the end of the last entry in the list</p>
+<p>[02 00]       &#8594; little-endian 16-bit number of list entries</p>
+<p>[00]          &#8594; number of bytes of previous entry</p>
+<p>[c0]          &#8594; value encoding (11000000, which means a 16-bit signed integer follows)</p>
+<p>[01 00]       &#8594; 16-bit value</p>
+<p>[04]          &#8594; number of bytes of previous entry</p>
+<p>[c0]          &#8594; value encoding (11000000, which means a 16-bit signed integer follows)</p>
+<p>[01 00]       &#8594; 16-bit value</p>
+<p>[ff]          &#8594; end of ziplist</p>
+<h2>Intset</h2>
+<p>(Note: I was unable to find whether the endiannesses listed below as little-endian encodings were always litle-endian or whether they are stored as host byte order.)</p>
+<p>The intset is used to encode sets consisting only of integers.</p>
+<p>Intsets begin with a 32-bit length, specifying the length of each member of the intset.</p>
+<p>Second, there is a 32-bit number specifying the number of elements in the intset</p>
+<p>Finally, every member is a signed integer, the size of which is specified above.</p>
+<p>Intsets end with a 0xff</p>
+<p>Example (encoding the set [1,-1])</p>
+<p>[02 00 00 00] &#8594; Little-endian 32-bit length encoding, in bytes, of members of the intset (2, or 16-bits)</p>
+<p>[02 00 00 00] &#8594; Little-endian 32-bit number of elements in the intset (2)</p>
+<p>[ff ff] &#8594; One little-endian 16-bit member (-1 [signed int16])</p>
+<p>[01 00] &#8594; One little-endian 16-bit member</p>
+<p>[ff] &#8594; End of intset</p>
+<h2>Zipmap</h2>
+<p>Zipmaps are space-efficient special encodings for hashes. The max number of members and max size for the zipmap encoding is set in the conf file that the Redis server reads when starting.</p>
+<p>The first byte specifies the length of the zipmap. If the length of the zipmap is greater than or equal to 0xfe, disregard this length and traverse the entire zipmap until 0xff is encountered after a member.</p>
+<p>Next is a series of key-value pairs encoded as follows:</p>
+<ol>
+	<li>First, the length of key. If this value is less than 0xfd, this is the length of the key. A value of 0xfe indicates the length is encoded as the next 4 bytes in host-byte order.</li>
+	<li>The next n bytes contain a bytestring of the key, where n is the length above.</li>
+	<li>Next is the length of the value encoded in the same manner as the length of the key.</li>
+	<li>Next is an 8-byte integer that specifies the number of free unused bytes after the string. When values are re-set from a longer value to a shorter value, some bytes may be set aside to make it faster to re-increase the size of the value. If you are parsing the structure, however, make sure you consume the free bytes are you consume the value. You can then disregard these free bytes.</li>
+	<li>The next n bytes contain a bytestring of the value, where n is the length above.</li>
+	<li>The next o bytes contain &#8220;free&#8221; bytes that should be thrown away, where o is the free length above.</li>
+</ol>
+<p>The zipmap ends with a 0xff</p>
+<p>Example (encoding the hash {bar: 1})</p>
+<p>[01] &#8594; The length of the zip-map (1 key-value pair)</p>
+<p>[03] &#8594; The length of the first key</p>
+<p>[62 61 72] &#8594; &#8220;bar&#8221;</p>
+<p>[01] &#8594; The length of the first value</p>
+<p>[02] &#8594; Number of free bytes</p>
+<p>[31] &#8594; &#8220;1&#8221;</p>
+<p>[6e 65] &#8594; 2 free bytes (&#8220;ne&#8221; from a previous setting of bar to &#8220;one&#8221;. These can be thrown out)</p>
+<p>[ff] &#8594; End of zipmap</p>
