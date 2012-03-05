@@ -37,6 +37,7 @@
         <li><a href="#ziplist">Ziplists</a></li>
         <li><a href="#intset">Intsets</a></li>
         <li><a href="#zipmap">Zipmaps</a></li>
+        <li><a href="#lzf-compression">LZF</a></li>
       </ul>
     </div>
   </div>
@@ -290,14 +291,14 @@ To decompress LZF, use the following loop:
 
 Example (encoded string "if i never if i never if i never")
 
-[12] -> The compressed length is 18 bytes
-[20] -> The original length is 32 bytes 
+==[12]== -> The compressed length is 18 bytes
+==[20]== -> The original length is 32 bytes 
 [0b] -> (000 | 01011) Copy the next 11+1 bytes literally
 [69 66 20 69 20 6e 65 76 65 72 20 69] -> "if i never i"
 [e0 0a] -> (111 | 00000) (10) Set length to 10+7.
-[0a] -> (10) Set distance to (00000 00001010) or 10. We move to the 10th to last character in "if i never i". This is 'f'. ("i" is the 0th character). Now copy 10+7+2 characters. There are only 11 characters to copy so we will copy those 11 characters, move back to 'f' and copy 8 more. Our decoded string now read "if i never if i never if i neve"
-[00] -> (000 | 00000) Copy the next 0+1 byte literally
-[72] -> (r) "if i never if i never if i never"
+[0a] -> (10) Set distance to (00000 00001010) or 10. We move to the 10th to last character in "if i never i". This is 'f'. ("i" is the 0th character). Now copy 10+7+2 characters. There are only 11 characters to copy so we will copy those 11 characters, move back to 'f' and copy 8 more. Our decoded string now reads "if i never if i never if i neve"
+==[00]== -> (000 | 00000) Copy the next 0+1 byte literally
+==[72]== -> (r) "if i never if i never if i never"
 
 </div>
 </body>

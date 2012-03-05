@@ -34,6 +34,7 @@ padding-top:40px;
         <li><a href="#ziplist">Ziplists</a></li>
         <li><a href="#intset">Intsets</a></li>
         <li><a href="#zipmap">Zipmaps</a></li>
+        <li><a href="#lzf-compression"><span class="caps">LZF</span></a></li>
 </ul>
 </div>
 </div>
@@ -189,5 +190,36 @@ padding-top:40px;
 <p>[31] &#8594; &#8220;1&#8221;</p>
 <p>[6e 65] &#8594; 2 free bytes (&#8220;ne&#8221; from a previous setting of bar to &#8220;one&#8221;. These can be thrown out)</p>
 <p>[ff] &#8594; End of zipmap</p>
+<h2 id="lzf-compression"><span class="caps">LZF</span> Compression</h2>
+<p>The <span class="caps">LZF</span> compression is a fast, cousin of the more-popular <span class="caps">LZW</span> compression algorithm.</p>
+<p>The first 1-5 byte(s) are a <a href="#length">length-encoded</a> length of the compressed string.</p>
+<p>The second 1-5 byte(s) are a <a href="#length">length-encoded</a> length of the decompressed string.</p>
+<p>The next n bytes are in compressed lzf format, where n is the first length above.</p>
+<p>To decompress <span class="caps">LZF</span>, use the following loop:</p>
+<ol>
+	<li>Take one byte and divide it into the first three bits and the remaining five. (<span class="caps">LLL</span> | <span class="caps">HHHHH</span>)</li>
+	<li>The first three bytes (<span class="caps">LLL</span>) will be a number between 0 and 7 and will be referred to as the &#8220;length&#8221;.</li>
+	<li>The remaining five bits specify what is called the &#8220;high distance&#8221;
+	<ol>
+		<li>If the first three bits == 0&#215;00, copy length+1 bytes from the compressed stream and append them to the current decompresses stream. Go to the beginning of this decompression loop and continue.</li>
+		<li>If the first three bits &gt; 0 &amp;&amp; &lt; 7, this is &#8220;length&#8221;. Continue.</li>
+		<li>If the first three bits == 7, fetch a new byte and add 7 to its value. This is the &#8220;length&#8221;. Continue.</li>
+	</ol></li>
+	<li>Fetch another byte and combine it with the &#8220;high distance.&#8221; (Shift the high distance left 8 bits and OR the two). This new value is the &#8220;distance&#8221;</li>
+	<li>Now go to the [distance] to last char in the decoded string and copy [length]+2 characters. If length is longer than the remaining characters in the decoded string, loop back to the beginning of distance and continue copying.
+	<ol>
+		<li>For instance. If you have decoded &#8220;foobar&#8221; so far, your distance is 1 and your length+2 is 10, you would repeat &#8220;ar&#8221; five times, totalling 10 characters.</li>
+	</ol></li>
+	<li>Repeat this algorithm until you have reached the end of the compressed string.</li>
+</ol>
+<p>Example (encoded string &#8220;if i never if i never if i never&#8221;)</p>
+<p>[12] &#8594; The compressed length is 18 bytes<br />
+[20] &#8594; The original length is 32 bytes <br />
+[0b] &#8594; (000 | 01011) Copy the next 11+1 bytes literally<br />
+[69 66 20 69 20 6e 65 76 65 72 20 69] &#8594; &#8220;if i never i&#8221;<br />
+[e0 0a] &#8594; (111 | 00000) (10) Set length to 10+7.<br />
+[0a] &#8594; (10) Set distance to (00000 00001010) or 10. We move to the 10th to last character in &#8220;if i never i&#8221;. This is &#8216;f&#8217;. (&#8220;i&#8221; is the 0th character). Now copy 10+7+2 characters. There are only 11 characters to copy so we will copy those 11 characters, move back to &#8216;f&#8217; and copy 8 more. Our decoded string now read &#8220;if i never if i never if i neve&#8221;<br />
+[00] &#8594; (000 | 00000) Copy the next 0+1 byte literally<br />
+[72] &#8594;&#174; &#8220;if i never if i never if i never&#8221;</p>
 </div>
 </body>
