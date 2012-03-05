@@ -144,6 +144,7 @@ Zipmaps are space-efficient special encodings for hashes. The max number of memb
 The first byte specifies the length of the zipmap. If the length of the zipmap is greater than or equal to 0xfe, disregard this length and traverse the entire zipmap until 0xff is encountered after a member.
 
 Next is a series of key-value pairs encoded as follows:
+
 - First, the length of key. If this value is less than 0xfd, this is the length of the key. A value of 0xfe indicates the length is encoded as the next 4 bytes in host-byte order.
 - The next n bytes contain a bytestring of the key, where n is the length above.
 - Next is the length of the value encoded in the same manner as the length of the key.
@@ -156,10 +157,17 @@ The zipmap ends with a 0xff
 Example (encoding the hash {bar: 1})
 
 [01] -> The length of the zip-map (1 key-value pair)
+
 [03] -> The length of the first key
+
 [62 61 72] -> "bar" 
+
 [01] -> The length of the first value
+
 [02] -> Number of free bytes 
+
 [31] -> "1"
+
 [6e 65] -> 2 free bytes ("ne" from a previous setting of bar to "one". These can be thrown out) 
+
 [ff] -> End of zipmap
