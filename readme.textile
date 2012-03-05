@@ -1,4 +1,8 @@
+<html>
+<head>
 <link rel="stylesheet" type="text/css" href="css/bootstrap.min.css" />
+</head>
+<body>
 h2. Format layout
 
 An rdb file begins with "REDIS0003" encoded as a bytestring. [9 bytes]
@@ -168,3 +172,4 @@ Example (encoding the hash {bar: 1})
 [6e 65] -> 2 free bytes ("ne" from a previous setting of bar to "one". These can be thrown out) 
 
 ==[ff]== -> End of zipmap
+</body>
