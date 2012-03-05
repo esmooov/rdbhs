@@ -1,5 +1,6 @@
 {- LANGUAGE OverloadedStrings, GADTs, KindSignatures, TypeFamilies -}
 
+
 import Blaze.ByteString.Builder
 import Data.Word
 import Data.Int
@@ -11,7 +12,10 @@ import Data.Binary
 import Data.Binary.Get
 import Control.Monad
 import Debug.Trace
-
+import Codec.Compression.LZF
+import qualified System.IO.Unsafe as IOU
+import Foreign
+import Foreign.C
 redis_header = BL8.pack "REDIS0003"
 
 -- Redis types
@@ -43,7 +47,6 @@ opcode_expiretime = 0xfd
 opcode_expiretimems = 0xfc
 
 -- Redis Length Codes
-
 len_6bit = 0x00
 len_14bit = 0x01
 len_32bit = 0x02
@@ -145,6 +148,47 @@ loadDoubleValue = do
                       val <- getLazyByteString (fromIntegral l)
                       return $ read $ BL8.unpack val
 
+loadLzfStr :: Get BL8.ByteString
+loadLzfStr = do
+             (clenEnc, clen) <- loadLen
+             (lenEnc, len) <- loadLen
+             str <- getLazyByteString (fromIntegral clen)
+             return $ decompressLzfStr str
+
+decompressLzfStr :: BL8.ByteString -> BL8.ByteString
+decompressLzfStr str = runGet (parseLzf BL8.empty) str
+                                
+parseLzf :: BL8.ByteString -> Get BL8.ByteString
+parseLzf decodedString = do
+                         empty <- isEmpty
+                         case empty of
+                           True -> do
+                             return BL8.empty
+                           False -> do
+                             h <- getWord8
+                             let len = shift (h .&. 0xe0) (-5)
+                             let high_d = h .&. 0x1f
+                             obj <- case len of
+                                      0 -> do
+                                        getLazyByteString (fromIntegral (high_d + 1))
+                                      7 -> do
+                                        new_len <- getWord8
+                                        let full_len = new_len + 7 + 2
+                                        low_d <- getWord8
+                                        let distance = high_d + low_d
+                                        return $ repCopy decodedString distance full_len 
+                                      l -> do
+                                        low_d <- getWord8
+                                        let distance = high_d + low_d
+                                        return $ repCopy decodedString distance (l+2)
+                             rest <- parseLzf (BL8.append decodedString obj)
+                             return (BL8.append obj rest)
+
+repCopy :: (Integral a) => BL8.ByteString -> a -> a -> BL8.ByteString
+repCopy str dist len = BL8.take (fromIntegral len) (BL8.cycle window) where
+                       window = BL8.drop (olen - (fromIntegral dist) - 1) str
+                       olen = BL8.length str
+
 loadStringObj :: Bool -> Get BL8.ByteString
 loadStringObj enc = do 
                     (isEncType,len) <- loadLen
@@ -158,7 +202,7 @@ loadStringObj enc = do
                         0x02 -> do
                           loadIntegerObj len enc
                         0x03 -> do
-                          loadIntegerObj len enc
+                          loadLzfStr
                     else do
                       getLazyByteString (fromIntegral len)
 
