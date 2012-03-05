@@ -298,7 +298,7 @@ Example (encoded string "if i never if i never if i never")
 [e0 0a] -> (111 | 00000) (10) Set length to 10+7.
 [0a] -> (10) Set distance to (00000 00001010) or 10. We move to the 10th to last character in "if i never i". This is 'f'. ("i" is the 0th character). Now copy 10+7+2 characters. There are only 11 characters to copy so we will copy those 11 characters, move back to 'f' and copy 8 more. Our decoded string now reads "if i never if i never if i neve"
 ==[00]== -> (000 | 00000) Copy the next 0+1 byte literally
-==[72]== -> (r) "if i never if i never if i never"
+==[72]== -> ==(r)== "if i never if i never if i never"
 
 </div>
 </body>
