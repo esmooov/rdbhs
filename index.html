@@ -1,9 +1,40 @@
 <html>
 <head>
 <link rel="stylesheet" type="text/css" href="css/bootstrap.min.css" />
+<script src="js/jquery-1.7.1.min.js"></script><script src="js/bootstrap-scrollspy.js"></script><script>
+  $(function(){
+    $('body').scrollspy({offset:40});
+    $(".navbar ul li, .navbar ul li a").click(function(e){
+      var anchor = $(e.target).attr("href"),
+          offset = $(anchor).offset().top;
+      $('body').scrollTop(offset-40);
+      e.preventDefault();
+    });
+  })
+</script><style>
+body{
+padding-top:40px;
+}
+</style>
 </head>
 <body>
-<h2>Format layout</h2>
+<div class="container">
+<div class="navbar navbar-fixed-top">
+<div class="navbar-inner">
+<div class="container">
+<ul class="nav">
+        <li class="active"><a href="#overview">Overview</a></li>
+        <li><a href="#length">Length encoding</a></li>
+        <li><a href="#string">Strings</a></li>
+        <li><a href="#ziplist">Ziplists</a></li>
+        <li><a href="#intset">Intsetss</a></li>
+        <li><a href="#zipmap">Zipmaps</a></li>
+</ul>
+</div>
+</div>
+</div>
+<h1 style="text-align:center;"><span class="caps">RDB</span> Spec</h1>
+<h2 id="overview">Format layout</h2>
 <p>An rdb file begins with &#8220;REDIS0003&#8221; encoded as a bytestring. [9 bytes]</p>
 <hr />
 <p>For each database in the dump</p>
@@ -22,7 +53,7 @@
 </ol>
 <hr />
 <p>An rdb file ends with the <span class="caps">EOF</span> opcode (0xff) [1 byte]</p>
-<h2>Length-encoding</h2>
+<h2 id="length">Length-encoding</h2>
 <p>The first two most-significant bits hold the encoding type</p>
 <ol>
 	<li>Less than 64 (00)</li>
@@ -37,12 +68,12 @@
 	<li>(10) | 000000 <span class="caps">XXXXXXXX</span> <span class="caps">XXXXXXXX</span> <span class="caps">XXXXXXXX</span> <span class="caps">XXXXXXXX</span> [5 bytes total]</li>
 	<li>(11) | <span class="caps">XXXXXX</span> [1 byte total]</li>
 </ol>
-<h2>String objects</h2>
+<h2 id="string">String objects</h2>
 <p>The first 1-5 bytes of a string object contains the length of the string object and whether or not it is an encoded string, as described in the length-encoding section above.</p>
 <p>If the string is an encoded type with either a 8, 16, or 32-bit encoding type, the string is loaded as an integer, as described above in the integer-loading section, and converted to a string.</p>
 <p>If the string is encoded with both bits set, it is loaded as an lzf compressed string, as described below.</p>
 <p>If the string is not an encoded type, it is loaded as a bytestring consisting of the next [length] bytes.</p>
-<h2>Special-encodings for length</h2>
+<h3>Special-encodings for strings</h3>
 <p>If a length-encoded byte has its most-significant two bits set, the remaining 6 bytes will contain either a 0,1,2 or 3.</p>
 <ol>
 	<li>A zero means the value following the length is encoded as an 8-bit integer.</li>
@@ -50,7 +81,7 @@
 	<li>A two means the value following the length is encoded as an 32-bit integer.</li>
 	<li>A three means the value following the length is encoded as an lzf compressed string.</li>
 </ol>
-<h2>Ziplist</h2>
+<h2 id="ziplist">Ziplist</h2>
 <p>(Note: I was unable to find whether the endiannesses listed below as little-endian encodings were always litle-endian or whether they are stored as host byte order.)</p>
 <p>Ziplists are space-efficient special encodings for lists and sorted sets. The max number of members and max size for the ziplist encoding is set in the conf file that the Redis server reads when starting.</p>
 <p>The first 4 bytes store the number of bytes in the ziplist</p>
@@ -83,7 +114,7 @@
 <p>[c0]          &#8594; value encoding (11000000, which means a 16-bit signed integer follows)</p>
 <p>[01 00]       &#8594; 16-bit value</p>
 <p>[ff]          &#8594; end of ziplist</p>
-<h2>Intset</h2>
+<h2 id="intset">Intset</h2>
 <p>(Note: I was unable to find whether the endiannesses listed below as little-endian encodings were always litle-endian or whether they are stored as host byte order.)</p>
 <p>The intset is used to encode sets consisting only of integers.</p>
 <p>Intsets begin with a 32-bit length, specifying the length of each member of the intset.</p>
@@ -96,7 +127,7 @@
 <p>[ff ff] &#8594; One little-endian 16-bit member (-1 [signed int16])</p>
 <p>[01 00] &#8594; One little-endian 16-bit member</p>
 <p>[ff] &#8594; End of intset</p>
-<h2>Zipmap</h2>
+<h2 id="zipmap">Zipmap</h2>
 <p>Zipmaps are space-efficient special encodings for hashes. The max number of members and max size for the zipmap encoding is set in the conf file that the Redis server reads when starting.</p>
 <p>The first byte specifies the length of the zipmap. If the length of the zipmap is greater than or equal to 0xfe, disregard this length and traverse the entire zipmap until 0xff is encountered after a member.</p>
 <p>Next is a series of key-value pairs encoded as follows:</p>
@@ -118,4 +149,5 @@
 <p>[31] &#8594; &#8220;1&#8221;</p>
 <p>[6e 65] &#8594; 2 free bytes (&#8220;ne&#8221; from a previous setting of bar to &#8220;one&#8221;. These can be thrown out)</p>
 <p>[ff] &#8594; End of zipmap</p>
+</div>
 </body>

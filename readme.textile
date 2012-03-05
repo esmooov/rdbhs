@@ -1,9 +1,44 @@
 <html>
 <head>
 <link rel="stylesheet" type="text/css" href="css/bootstrap.min.css" />
+<script src="js/jquery-1.7.1.min.js"></script>
+<script src="js/bootstrap-scrollspy.js"></script>
+<script>
+  $(function(){
+    $('body').scrollspy({offset:40});
+    $(".navbar ul li, .navbar ul li a").click(function(e){
+      var anchor = $(e.target).attr("href"),
+          offset = $(anchor).offset().top;
+      $('body').scrollTop(offset-40);
+      e.preventDefault();
+    });
+  })
+</script>
+<style>
+  body{
+    padding-top:40px;
+  }
+</style>
 </head>
 <body>
-h2. Format layout
+<div class="container">
+<div class="navbar navbar-fixed-top">
+  <div class="navbar-inner">
+    <div class="container">
+      <ul class="nav">
+        <li class="active"><a href="#overview">Overview</a></li>
+        <li><a href="#length">Length encoding</a></li>
+        <li><a href="#string">Strings</a></li>
+        <li><a href="#ziplist">Ziplists</a></li>
+        <li><a href="#intset">Intsetss</a></li>
+        <li><a href="#zipmap">Zipmaps</a></li>
+      </ul>
+    </div>
+  </div>
+</div>
+h1=. RDB Spec
+
+h2(#overview). Format layout
 
 An rdb file begins with "REDIS0003" encoded as a bytestring. [9 bytes]
 
@@ -25,7 +60,7 @@ For each database in the dump
 
 An rdb file ends with the EOF opcode (0xff) [1 byte]
 
-h2. Length-encoding
+h2(#length). Length-encoding
 
 The first two most-significant bits hold the encoding type
 
@@ -43,7 +78,7 @@ The remaining bits hold the length (or, in the last case, encoding type) to be e
 
 
 
-h2. String objects
+h2(#string). String objects
 
 The first 1-5 bytes of a string object contains the length of the string object and whether or not it is an encoded string, as described in the length-encoding section above.
 
@@ -53,7 +88,7 @@ If the string is encoded with both bits set, it is loaded as an lzf compressed s
 
 If the string is not an encoded type, it is loaded as a bytestring consisting of the next [length] bytes.
 
-h2. Special-encodings for length
+h3. Special-encodings for strings
 
 If a length-encoded byte has its most-significant two bits set, the remaining 6 bytes will contain either a 0,1,2 or 3.
 
@@ -62,7 +97,7 @@ If a length-encoded byte has its most-significant two bits set, the remaining 6 
 # A two means the value following the length is encoded as an 32-bit integer.
 # A three means the value following the length is encoded as an lzf compressed string.
 
-h2. Ziplist
+h2(#ziplist). Ziplist
 
 (Note: I was unable to find whether the endiannesses listed below as little-endian encodings were always litle-endian or whether they are stored as host byte order.)
 
@@ -112,7 +147,7 @@ Example (encoding the very silly list [1,1]):
 
 [ff]          -> end of ziplist
 
-h2. Intset
+h2(#intset). Intset
 
 (Note: I was unable to find whether the endiannesses listed below as little-endian encodings were always litle-endian or whether they are stored as host byte order.)
 
@@ -138,7 +173,7 @@ Example (encoding the set [1,-1])
 
 [ff] -> End of intset
 
-h2. Zipmap
+h2(#zipmap). Zipmap
 
 Zipmaps are space-efficient special encodings for hashes. The max number of members and max size for the zipmap encoding is set in the conf file that the Redis server reads when starting.
 
@@ -172,4 +207,5 @@ Example (encoding the hash {bar: 1})
 [6e 65] -> 2 free bytes ("ne" from a previous setting of bar to "one". These can be thrown out) 
 
 ==[ff]== -> End of zipmap
+</div>
 </body>
