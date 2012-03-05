@@ -125,13 +125,13 @@ loadIntegerObj len enc = do
                          case len of 
                             0x00 -> do
                               str <- getWord8
-                              return $ BL8.pack $ show str
+                              return $ BL8.pack $ show (fromIntegral str :: Int8) 
                             0x01 -> do
                               str <- getWord16le
-                              return $ BL8.pack $ show str
+                              return $ BL8.pack $ show (fromIntegral str :: Int16)
                             0x02 -> do
                               str <- getWord32le
-                              return $ BL8.pack $ show str
+                              return $ BL8.pack $ show (fromIntegral str :: Int32) 
 
 loadDoubleValue :: Get Double
 loadDoubleValue = do
