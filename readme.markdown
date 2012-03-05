@@ -73,7 +73,7 @@ The next 2 bytes store the number of members of the ziplist
 
 The remaining n-1 bytes of the ziplist store a sequence of members. If the ziplist is encoding a sorted set, the members should be parsed as value, score pairs.
 
-The structure of every zip list members is as follows:
+The structure of every ziplist member is as follows:
 
 - First, is the number of bytes of the previous member in the ziplist. If this byte is less than 0xfe, the length is stored as a single byte. If the first byte is set to 0xfe, the next four bytes will hold the length of the previous member.
 
@@ -89,6 +89,8 @@ The structure of every zip list members is as follows:
 
 Every ziplist terminates with a 0xff byte
 
+Example (encoding the very silly list [1,1]):
+
 [13 00 00 00] -> Little-endian 32-bit length (in bytes) of ziplist
 
 [0e 00 00 00] -> little-endian 32-bit offset (in bytes) to the end of the last entry in the list
@@ -97,13 +99,13 @@ Every ziplist terminates with a 0xff byte
 
 [00]          -> number of bytes of previous entry
 
-[c0]          -> value encoding
+[c0]          -> value encoding (11000000, which means a 16-bit signed integer follows)
 
-[01 00]       -> 16-bit value
+[01 00]       -> 16-bit value 
 
 [04]          -> number of bytes of previous entry
 
-[c0]          -> value encoding
+[c0]          -> value encoding (11000000, which means a 16-bit signed integer follows)
 
 [01 00]       -> 16-bit value
 
@@ -111,8 +113,22 @@ Every ziplist terminates with a 0xff byte
 
 ## Intset
 
-[02 00 00 00]  -> Little-endian 32-bit length encoding, in bytes, of members of the intset
+(Note: I was unable to find whether the endiannesses listed below as little-endian encodings were always litle-endian or whether they are stored as host byte order.)
 
-[01 00 00 00]  -> Little-endian 32-bit number of elements in the intset
+The intset is used to encode sets consisting only of integers.
 
-[01 00]        -> One little-endian member, two-bytes long, as specified in the encoding above
+Intsets begin with a 32-bit length, specifying the length of each member of the intset.
+
+Second, there is a 32-bit number specifying the number of elements in the intset
+
+Finally, every member is a signed integer, the size of which is specified above.
+
+Intsets end with a 0xff
+
+Example (encoding the set [1,-1])
+
+[02 00 00 00] -> Little-endian 32-bit length encoding, in bytes, of members of the intset (2, or 16-bits)
+[02 00 00 00] -> Little-endian 32-bit number of elements in the intset (2)
+[ff ff] -> One little-endian 16-bit member (-1 [signed int16])
+[01 00] -> One little-endian 16-bit member
+[ff] -> End of intset

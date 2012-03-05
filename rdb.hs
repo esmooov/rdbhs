@@ -12,7 +12,6 @@ import Data.Binary
 import Data.Binary.Get
 import Control.Monad
 import Debug.Trace
-import Codec.Compression.LZF
 import qualified System.IO.Unsafe as IOU
 import Foreign
 import Foreign.C
@@ -182,7 +181,7 @@ parseLzf decodedString = do
                                         let distance = high_d + low_d
                                         return $ repCopy decodedString distance (l+2)
                              rest <- parseLzf (BL8.append decodedString obj)
-                             return (BL8.append obj rest)
+                             return (toLazyByteString $ fromLazyByteString $ BL8.append obj rest)
 
 repCopy :: (Integral a) => BL8.ByteString -> a -> a -> BL8.ByteString
 repCopy str dist len = BL8.take (fromIntegral len) (BL8.cycle window) where
@@ -289,13 +288,13 @@ loadIntSetMember enc = do
                        case enc of
                          0x02 -> do
                             obj <- getWord16le
-                            return $ BL8.pack $ show obj
+                            return $ BL8.pack $ show (fromIntegral obj :: Int16)
                          0x04 -> do
                             obj <- getWord32le
-                            return $ BL8.pack $ show obj
+                            return $ BL8.pack $ show (fromIntegral obj :: Int32)
                          0x08 -> do
                             obj <- getWord64le
-                            return $ BL8.pack $ show obj
+                            return $ BL8.pack $ show (fromIntegral obj :: Int64)
 
 loadHashObj :: Get [(BL8.ByteString,BL8.ByteString)]
 loadHashObj = do
