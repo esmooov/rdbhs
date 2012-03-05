@@ -58,3 +58,61 @@ If a length-encoded byte has its most-significant two bits set, the remaining 6 
 - A one means the value following the length is encoded as an 16-bit integer.
 - A two means the value following the length is encoded as an 32-bit integer.
 - A three means the value following the length is encoded as an lzf compressed string.
+
+## Ziplist
+
+(Note: I was unable to find whether the endiannesses listed below as little-endian encodings were always litle-endian or whether they are stored as host byte order.)
+
+Ziplists are space-efficient special encodings for lists and sorted sets. The max number of members and max size for the ziplist encoding is set in the conf file that the Redis server reads when starting.
+
+The first 4 bytes store the number of bytes in the ziplist
+
+The next 4 bytes store the offset (in bytes) to the end of the last entry in the list
+
+The next 2 bytes store the number of members of the ziplist
+
+The remaining n-1 bytes of the ziplist store a sequence of members. If the ziplist is encoding a sorted set, the members should be parsed as value, score pairs.
+
+The structure of every zip list members is as follows:
+
+- First, is the number of bytes of the previous member in the ziplist. If this byte is less than 0xfe, the length is stored as a single byte. If the first byte is set to 0xfe, the next four bytes will hold the length of the previous member.
+
+- Next, is the encoding and length of the current member of the ziplist. This is similar, though not exactly the same, to the way the lengths and encodings of RDB objects are stored.
+  - If the first two most-significant bits are set to zero (00), the ziplist member is encoded as an n-bytes long string where n is the value of the remaining 6 bits. (00|XXXXXX)
+  - If the first two most-significant bits are set to one (01), the ziplist member is encoded as an n-bytes long string where n is the conjunction of remaining 6 bits shifted left 8 bytes and the next byte (01|XXXXXX XXXXXXXX)
+  - If the first two most-significant bits are set to two (10), the ziplist member is encoded as an n-bytes long string where n is the conjunction of remaining 6 bits shifted left 16 bytes and the next two bytes (01|XXXXXX XXXXXXXX XXXXXXXX).
+  - If the first two most-significant bits are set to three and the next two bits are set to zero (1100), the ziplist member is encoded as an int16t (2 bytes).
+  - If the first two most-significant bits are set to three and the next two bits are set to one (1101), the ziplist member is encoded as an int32t (4 bytes).
+  - If the first two most-significant bits are set to three and the next two bits are set to two (1110), the ziplist member is encoded as an int64t (8 bytes).
+
+- Finally, comes the value specified by the encoding and length
+
+Every ziplist terminates with a 0xff byte
+
+[13 00 00 00] -> Little-endian 32-bit length (in bytes) of ziplist
+
+[0e 00 00 00] -> little-endian 32-bit offset (in bytes) to the end of the last entry in the list
+
+[02 00]       -> little-endian 16-bit number of list entries
+
+[00]          -> number of bytes of previous entry
+
+[c0]          -> value encoding
+
+[01 00]       -> 16-bit value
+
+[04]          -> number of bytes of previous entry
+
+[c0]          -> value encoding
+
+[01 00]       -> 16-bit value
+
+[ff]          -> end of ziplist
+
+## Intset
+
+[02 00 00 00]  -> Little-endian 32-bit length encoding, in bytes, of members of the intset
+
+[01 00 00 00]  -> Little-endian 32-bit number of elements in the intset
+
+[01 00]        -> One little-endian member, two-bytes long, as specified in the encoding above
