@@ -76,24 +76,29 @@ The remaining bits hold the length (or, in the last case, encoding type) to be e
 # (10) | 000000 XXXXXXXX XXXXXXXX XXXXXXXX XXXXXXXX [5 bytes total]
 # (11) | XXXXXX [1 byte total] (The remaining 6 bits determine how the following value is encoded. This is unique to each type and will be described in the specific sections below on value types.)
 
-h2(#integer). Integer objects
-
 h2(#string). String objects
 
 The first 1-5 bytes of a string object contains the length of the string object and whether or not it is an encoded string, as described in the "length-encoding section above":#length .
 
 If the string is not an encoded type, it is simply a series of n bytes where n is the length determined above.
 
-If the string is an encoded type and the bottom two bits of the length are either (00,01,or 10), the string is loaded as an integer, as described above in the integer-loading section, and converted to a string.
-# If the bottom two bits of the length are set to 00, the string is a 8-bit
-
-If the string is encoded and the remaining 6 bits of the length, it is loaded as an lzf compressed string, as described below.
-
-If the string is not an encoded type, it is loaded as a bytestring consisting of the next [length] bytes.
+If the string is an encoded type and the bottom two bits of the length are either (00,01,or 10), the string is loaded as an integer and converted to a string. Otherwise the string is lzf-decompressed and loaded as a string.
+# If the bottom two bits of the length are set to 00, the string is a 8-bit signed integer
+# If the bottom two bits of the length are set to 01, the string is a 16-bit signed integer
+# If the bottom two bits of the length are set to 10, the string is a 32-bit signed integer
+# If the bottom two bits of the length are set to 10, the string is "lzf-compressed":#lzf-compression
 
 Example (the string "foo"):
+[03] -> (00000011) The string is normally encoded as a series of 3 characters
+[66 6f 6f] => "foo"
 
+Example (the string "-1"):
+[c0] -> (11000000) The string is an 8-bit signed integer
+[ff] => "-1"
 
+Example (the string "256"):
+[c1] -> (11000001) The string is a 16-bit signed integer
+[00 01] -> "256"
 
 h3. Special-encodings for strings
 
