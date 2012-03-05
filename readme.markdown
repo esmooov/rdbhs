@@ -128,7 +128,11 @@ Intsets end with a 0xff
 Example (encoding the set [1,-1])
 
 [02 00 00 00] -> Little-endian 32-bit length encoding, in bytes, of members of the intset (2, or 16-bits)
+
 [02 00 00 00] -> Little-endian 32-bit number of elements in the intset (2)
+
 [ff ff] -> One little-endian 16-bit member (-1 [signed int16])
+
 [01 00] -> One little-endian 16-bit member
+
 [ff] -> End of intset
