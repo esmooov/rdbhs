@@ -62,31 +62,38 @@ An rdb file ends with the EOF opcode (0xff) [1 byte]
 
 h2(#length). Length-encoding
 
-The first two most-significant bits hold the encoding type
+The first two most-significant bits hold the type of the value and the length
 
-# Less than 64 (00)
-# Less than 16,384 (01)
-# 32-bit integer (10)
-# Special encoding (11)
+# The value is not specially encoded and has a length less than 64 (00)
+# The value is not specially encoded and has a length less than 16,384 (01)
+# The value is not specially encoded and has a length that fits in a 32-bit integer (10)
+# The value is specially encoded (11)
 
 The remaining bits hold the length (or, in the last case, encoding type) to be encoded (marked below as X's)
 
 # (00) | XXXXXX [1 byte total]
 # (01) | XXXXXX XXXXXXXX [2 bytes total]
 # (10) | 000000 XXXXXXXX XXXXXXXX XXXXXXXX XXXXXXXX [5 bytes total]
-# (11) | XXXXXX [1 byte total]
+# (11) | XXXXXX [1 byte total] (The remaining 6 bits determine how the following value is encoded. This is unique to each type and will be described in the specific sections below on value types.)
 
-
+h2(#integer). Integer objects
 
 h2(#string). String objects
 
-The first 1-5 bytes of a string object contains the length of the string object and whether or not it is an encoded string, as described in the length-encoding section above.
+The first 1-5 bytes of a string object contains the length of the string object and whether or not it is an encoded string, as described in the "length-encoding section above":#length .
 
-If the string is an encoded type with either a 8, 16, or 32-bit encoding type, the string is loaded as an integer, as described above in the integer-loading section, and converted to a string.
+If the string is not an encoded type, it is simply a series of n bytes where n is the length determined above.
 
-If the string is encoded with both bits set, it is loaded as an lzf compressed string, as described below.
+If the string is an encoded type and the bottom two bits of the length are either (00,01,or 10), the string is loaded as an integer, as described above in the integer-loading section, and converted to a string.
+# If the bottom two bits of the length are set to 00, the string is a 8-bit
+
+If the string is encoded and the remaining 6 bits of the length, it is loaded as an lzf compressed string, as described below.
 
 If the string is not an encoded type, it is loaded as a bytestring consisting of the next [length] bytes.
+
+Example (the string "foo"):
+
+
 
 h3. Special-encodings for strings
 
@@ -96,6 +103,10 @@ If a length-encoded byte has its most-significant two bits set, the remaining 6 
 # A one means the value following the length is encoded as an 16-bit integer.
 # A two means the value following the length is encoded as an 32-bit integer.
 # A three means the value following the length is encoded as an lzf compressed string.
+
+Example:
+
+
 
 h2(#ziplist). Ziplist
 
