@@ -52,13 +52,25 @@ For each database in the dump
 ## If the object has an expire time:
 ## The first byte is the EXPIRETIME opcode (0xfd) or, in Redis 2.6+, EXPIRETIME_MS opcode (0xfc)
 ## What follows is the expire time in seconds or, in Redis 2.6+, in ms (See below)
-# The first byte is the object type (See below for list of object type opcodes)
+# The first byte is the object type (See below for "list of object type opcodes":#types)
 # Then, the string-encoded key for the object (See below)
 # Then, the object itself, specially encoded for its type (See below)
 
 ------
 
 An rdb file ends with the EOF opcode (0xff) [1 byte]
+
+h2(#types). Object types
+
+0x00 -> "String object":#string
+0x01 -> "List object":#list
+0x02 -> "Set object":#set
+0x03 => "Sorted set object":#zset
+0x04 -> "Hash object":#hash
+0x09 -> "Zipmap":#zipmap
+0x0a -> "Ziplist":#ziplist
+0x0b -> "Intset":#inset
+0x0c -> "Ziplist ==(as value-score pairs for a sorted set)==":#ziplist
 
 h2(#length). Length-encoding
 
@@ -100,18 +112,43 @@ Example (the string "256"):
 [c1] -> (11000001) The string is a 16-bit signed integer
 [00 01] -> "256"
 
-h3. Special-encodings for strings
+h2(#list). List objects
 
-If a length-encoded byte has its most-significant two bits set, the remaining 6 bytes will contain either a 0,1,2 or 3.
+The first 1-5 bytes of a list object contains the number of list members, as described in the "length-encoding section above":#length .
 
-# A zero means the value following the length is encoded as an 8-bit integer.
-# A one means the value following the length is encoded as an 16-bit integer.
-# A two means the value following the length is encoded as an 32-bit integer.
-# A three means the value following the length is encoded as an lzf compressed string.
+There is no special encoding type for lists. Their compact representation is the "ziplist":#ziplist but this will be specified as the object type, not in the length encoding.
 
-Example:
+List objects are simply n strings, decoded as "string objects":#string where n is the length from above.
 
+h2(#set). Set objects
 
+The first 1-5 bytes of a set object contains the number of set members, as described in the "length-encoding section above":#length .
+
+There is no special encoding type for lists. Their compact representation is the "intset":#intset but this will be specified as the object type, not in the length encoding. The intset is reserved for sets in which all members are integers.
+
+Set objects are simply n strings, decoded as "string objects":#string where n is the length from above.
+
+h2(#zset). Sorted set object
+
+The first 1-5 bytes of a sorted set object contains the number of value-score pairs, as described in the "length-encoding section above":#length .
+
+There is no special encoding type for sorted sets. Their compact representation is a "ziplist":#ziplist of value-score pairs but this will be specified as the object type, not in the length encoding.
+
+Sorted Set objects are n value-score pairs. 
+
+Each value is decoded as "string objects":#string where n is the length from above. 
+
+Every value is followed by a double value specifying its score. This double should be decoded as "specified in the double section below":#double .
+
+h2(#hash). Hash object
+
+The first 1-5 bytes of a hash object contains the number of key-value pairs, as described in the "length-encoding section above":#length .
+
+There is no special encoding type for hashes. Their compact representation is the "zipmap":#zipmap but this will be specified as the object type, not in the length encoding.
+
+The rest of the hash is decoded as 2n "string objects":#string where n is the length from above.
+
+Every other string is the key followed by the string representing its value.
 
 h2(#ziplist). Ziplist
 

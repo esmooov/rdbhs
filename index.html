@@ -47,40 +47,60 @@ padding-top:40px;
 		<li>The first byte is the <span class="caps">EXPIRETIME</span> opcode (0xfd) or, in Redis 2.6+, EXPIRETIME_MS opcode (0xfc)</li>
 		<li>What follows is the expire time in seconds or, in Redis 2.6+, in ms (See below)</li>
 	</ol></li>
-	<li>The first byte is the object type (See below for list of object type opcodes)</li>
+	<li>The first byte is the object type (See below for <a href="#types">list of object type opcodes</a>)</li>
 	<li>Then, the string-encoded key for the object (See below)</li>
 	<li>Then, the object itself, specially encoded for its type (See below)</li>
 </ol>
 <hr />
 <p>An rdb file ends with the <span class="caps">EOF</span> opcode (0xff) [1 byte]</p>
+<h2 id="types">Object types</h2>
+<p>0&#215;00 &#8594; <a href="#string">String object</a><br />
+0&#215;01 &#8594; <a href="#list">List object</a><br />
+0&#215;02 &#8594; <a href="#set">Set object</a><br />
+0&#215;03 =&gt; <a href="#zset">Sorted set object</a><br />
+0&#215;04 &#8594; <a href="#hash">Hash object</a><br />
+0&#215;09 &#8594; <a href="#zipmap">Zipmap</a><br />
+0&#215;0a &#8594; <a href="#ziplist">Ziplist</a><br />
+0&#215;0b &#8594; <a href="#inset">Intset</a><br />
+0&#215;0c &#8594; <a href="#ziplist" title="as value-score pairs for a sorted set">Ziplist</a></p>
 <h2 id="length">Length-encoding</h2>
-<p>The first two most-significant bits hold the encoding type</p>
+<p>The first two most-significant bits hold the type of the value and the length</p>
 <ol>
-	<li>Less than 64 (00)</li>
-	<li>Less than 16,384 (01)</li>
-	<li>32-bit integer (10)</li>
-	<li>Special encoding (11)</li>
+	<li>The value is not specially encoded and has a length less than 64 (00)</li>
+	<li>The value is not specially encoded and has a length less than 16,384 (01)</li>
+	<li>The value is not specially encoded and has a length that fits in a 32-bit integer (10)</li>
+	<li>The value is specially encoded (11)</li>
 </ol>
 <p>The remaining bits hold the length (or, in the last case, encoding type) to be encoded (marked below as X&#8217;s)</p>
 <ol>
 	<li>(00) | <span class="caps">XXXXXX</span> [1 byte total]</li>
 	<li>(01) | <span class="caps">XXXXXX</span> <span class="caps">XXXXXXXX</span> [2 bytes total]</li>
 	<li>(10) | 000000 <span class="caps">XXXXXXXX</span> <span class="caps">XXXXXXXX</span> <span class="caps">XXXXXXXX</span> <span class="caps">XXXXXXXX</span> [5 bytes total]</li>
-	<li>(11) | <span class="caps">XXXXXX</span> [1 byte total]</li>
+	<li>(11) | <span class="caps">XXXXXX</span> [1 byte total] (The remaining 6 bits determine how the following value is encoded. This is unique to each type and will be described in the specific sections below on value types.)</li>
 </ol>
 <h2 id="string">String objects</h2>
-<p>The first 1-5 bytes of a string object contains the length of the string object and whether or not it is an encoded string, as described in the length-encoding section above.</p>
-<p>If the string is an encoded type with either a 8, 16, or 32-bit encoding type, the string is loaded as an integer, as described above in the integer-loading section, and converted to a string.</p>
-<p>If the string is encoded with both bits set, it is loaded as an lzf compressed string, as described below.</p>
-<p>If the string is not an encoded type, it is loaded as a bytestring consisting of the next [length] bytes.</p>
-<h3>Special-encodings for strings</h3>
-<p>If a length-encoded byte has its most-significant two bits set, the remaining 6 bytes will contain either a 0,1,2 or 3.</p>
+<p>The first 1-5 bytes of a string object contains the length of the string object and whether or not it is an encoded string, as described in the <a href="#length">length-encoding section above</a> .</p>
+<p>If the string is not an encoded type, it is simply a series of n bytes where n is the length determined above.</p>
+<p>If the string is an encoded type and the bottom two bits of the length are either (00,01,or 10), the string is loaded as an integer and converted to a string. Otherwise the string is lzf-decompressed and loaded as a string.</p>
 <ol>
-	<li>A zero means the value following the length is encoded as an 8-bit integer.</li>
-	<li>A one means the value following the length is encoded as an 16-bit integer.</li>
-	<li>A two means the value following the length is encoded as an 32-bit integer.</li>
-	<li>A three means the value following the length is encoded as an lzf compressed string.</li>
+	<li>If the bottom two bits of the length are set to 00, the string is a 8-bit signed integer</li>
+	<li>If the bottom two bits of the length are set to 01, the string is a 16-bit signed integer</li>
+	<li>If the bottom two bits of the length are set to 10, the string is a 32-bit signed integer</li>
+	<li>If the bottom two bits of the length are set to 10, the string is <a href="#lzf-compression">lzf-compressed</a></li>
 </ol>
+<p>Example (the string &#8220;foo&#8221;):<br />
+<sup class="footnote" id="fnr03"><a href="#fn03">03</a></sup> &#8594; (00000011) The string is normally encoded as a series of 3 characters<br />
+[66 6f 6f] =&gt; &#8220;foo&#8221;</p>
+<p>Example (the string &#8220;-1&#8221;):<br />
+[c0] &#8594; (11000000) The string is an 8-bit signed integer<br />
+[ff] =&gt; &#8220;-1&#8221;</p>
+<p>Example (the string &#8220;256&#8221;):<br />
+[c1] &#8594; (11000001) The string is a 16-bit signed integer<br />
+[00 01] &#8594; &#8220;256&#8221;</p>
+<h2 id="list">List object</h2>
+<h2 id="set">Set object</h2>
+<h2 id="zset">Sorted set object</h2>
+<h2 id="hash">Hash object</h2>
 <h2 id="ziplist">Ziplist</h2>
 <p>(Note: I was unable to find whether the endiannesses listed below as little-endian encodings were always litle-endian or whether they are stored as host byte order.)</p>
 <p>Ziplists are space-efficient special encodings for lists and sorted sets. The max number of members and max size for the ziplist encoding is set in the conf file that the Redis server reads when starting.</p>
