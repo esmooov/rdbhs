@@ -20,8 +20,6 @@ For each database in the dump
 
 An rdb file ends with the EOF opcode (0xff) [1 byte]
 
-======
-
 h2. Length-encoding
 
 The first two most-significant bits hold the encoding type
@@ -95,13 +93,13 @@ Example (encoding the very silly list [1,1]):
 
 [02 00]       -> little-endian 16-bit number of list entries
 
-[00]          -> number of bytes of previous entry
+==[00]==          -> number of bytes of previous entry
 
 [c0]          -> value encoding (11000000, which means a 16-bit signed integer follows)
 
 [01 00]       -> 16-bit value 
 
-[04]          -> number of bytes of previous entry
+==[04]==          -> number of bytes of previous entry
 
 [c0]          -> value encoding (11000000, which means a 16-bit signed integer follows)
 
@@ -154,18 +152,18 @@ The zipmap ends with a 0xff
 
 Example (encoding the hash {bar: 1})
 
-[01] -> The length of the zip-map (1 key-value pair)
+==[01]== -> The length of the zip-map (1 key-value pair)
 
-[03] -> The length of the first key
+==[03]== -> The length of the first key
 
 [62 61 72] -> "bar" 
 
-[01] -> The length of the first value
+==[01]== -> The length of the first value
 
-[02] -> Number of free bytes 
+==[02]== -> Number of free bytes 
 
-[31] -> "1"
+==[31]== -> "1"
 
 [6e 65] -> 2 free bytes ("ne" from a previous setting of bar to "one". These can be thrown out) 
 
-[ff] -> End of zipmap
+==[ff]== -> End of zipmap
