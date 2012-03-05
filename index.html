@@ -62,7 +62,7 @@ padding-top:40px;
 0&#215;09 &#8594; <a href="#zipmap">Zipmap</a><br />
 0&#215;0a &#8594; <a href="#ziplist">Ziplist</a><br />
 0&#215;0b &#8594; <a href="#inset">Intset</a><br />
-0&#215;0c &#8594; <a href="#ziplist" title="as value-score pairs for a sorted set">Ziplist</a></p>
+0&#215;0c &#8594; <a href="#ziplist">Ziplist (as value-score pairs for a sorted set)</a></p>
 <h2 id="length">Length-encoding</h2>
 <p>The first two most-significant bits hold the type of the value and the length</p>
 <ol>
@@ -97,10 +97,25 @@ padding-top:40px;
 <p>Example (the string &#8220;256&#8221;):<br />
 [c1] &#8594; (11000001) The string is a 16-bit signed integer<br />
 [00 01] &#8594; &#8220;256&#8221;</p>
-<h2 id="list">List object</h2>
-<h2 id="set">Set object</h2>
+<h2 id="list">List objects</h2>
+<p>The first 1-5 bytes of a list object contains the number of list members, as described in the <a href="#length">length-encoding section above</a> .</p>
+<p>There is no special encoding type for lists. Their compact representation is the <a href="#ziplist">ziplist</a> but this will be specified as the object type, not in the length encoding.</p>
+<p>List objects are simply n strings, decoded as <a href="#string">string objects</a> where n is the length from above.</p>
+<h2 id="set">Set objects</h2>
+<p>The first 1-5 bytes of a set object contains the number of set members, as described in the <a href="#length">length-encoding section above</a> .</p>
+<p>There is no special encoding type for lists. Their compact representation is the <a href="#intset">intset</a> but this will be specified as the object type, not in the length encoding. The intset is reserved for sets in which all members are integers.</p>
+<p>Set objects are simply n strings, decoded as <a href="#string">string objects</a> where n is the length from above.</p>
 <h2 id="zset">Sorted set object</h2>
+<p>The first 1-5 bytes of a sorted set object contains the number of value-score pairs, as described in the <a href="#length">length-encoding section above</a> .</p>
+<p>There is no special encoding type for sorted sets. Their compact representation is a <a href="#ziplist">ziplist</a> of value-score pairs but this will be specified as the object type, not in the length encoding.</p>
+<p>Sorted Set objects are n value-score pairs.</p>
+<p>Each value is decoded as <a href="#string">string objects</a> where n is the length from above.</p>
+<p>Every value is followed by a double value specifying its score. This double should be decoded as <a href="#double">specified in the double section below</a> .</p>
 <h2 id="hash">Hash object</h2>
+<p>The first 1-5 bytes of a hash object contains the number of key-value pairs, as described in the <a href="#length">length-encoding section above</a> .</p>
+<p>There is no special encoding type for hashes. Their compact representation is the <a href="#zipmap">zipmap</a> but this will be specified as the object type, not in the length encoding.</p>
+<p>The rest of the hash is decoded as 2n <a href="#string">string objects</a> where n is the length from above.</p>
+<p>Every other string is the key followed by the string representing its value.</p>
 <h2 id="ziplist">Ziplist</h2>
 <p>(Note: I was unable to find whether the endiannesses listed below as little-endian encodings were always litle-endian or whether they are stored as host byte order.)</p>
 <p>Ziplists are space-efficient special encodings for lists and sorted sets. The max number of members and max size for the ziplist encoding is set in the conf file that the Redis server reads when starting.</p>
