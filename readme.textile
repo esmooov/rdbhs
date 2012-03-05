@@ -283,7 +283,21 @@ To decompress LZF, use the following loop:
 ## If the first three bits == 0x00, copy length+1 bytes from the compressed stream and append them to the current decompresses stream. Go to the beginning of this decompression loop and continue.
 ## If the first three bits > 0 && < 7, this is "length". Continue.
 ## If the first three bits == 7, fetch a new byte and add 7 to its value. This is the "length". Continue.
-# Fetch another byte and add its value to the "high distance" 
+# Fetch another byte and combine it with the "high distance." (Shift the high distance left 8 bits and OR the two). This new value is the "distance"
+# Now go to the [distance] to last char in the decoded string and copy [length]+2 characters. If length is longer than the remaining characters in the decoded string, loop back to the beginning of distance and continue copying.
+## For instance. If you have decoded "foobar" so far, your distance is 1 and your length+2 is 10, you would repeat "ar" five times, totalling 10 characters.
+# Repeat this algorithm until you have reached the end of the compressed string.
+
+Example (encoded string "if i never if i never if i never")
+
+[12] -> The compressed length is 18 bytes
+[20] -> The original length is 32 bytes 
+[0b] -> (000 | 01011) Copy the next 11+1 bytes literally
+[69 66 20 69 20 6e 65 76 65 72 20 69] -> "if i never i"
+[e0 0a] -> (111 | 00000) (10) Set length to 10+7.
+[0a] -> (10) Set distance to (00000 00001010) or 10. We move to the 10th to last character in "if i never i". This is 'f'. ("i" is the 0th character). Now copy 10+7+2 characters. There are only 11 characters to copy so we will copy those 11 characters, move back to 'f' and copy 8 more. Our decoded string now read "if i never if i never if i neve"
+[00] -> (000 | 00000) Copy the next 0+1 byte literally
+[72] -> (r) "if i never if i never if i never"
 
 </div>
 </body>
