@@ -1,6 +1,5 @@
 {- LANGUAGE OverloadedStrings, GADTs, KindSignatures, TypeFamilies -}
 
-
 import Blaze.ByteString.Builder
 import Data.Word
 import Data.Int
@@ -81,9 +80,11 @@ getSecondEncoding = (flip shift (-4)) . (.&.) 0x30
 get6bitLen :: Word8 -> Integer
 get6bitLen = fromIntegral . (.&.) 0x3f
 
-get14bitLen :: Word8 -> Word8 -> Integer
-get14bitLen f s = fromIntegral $ (ms .|. s) where 
-                    ms = shift (f .&. 0x3f) 8
+get14bitLen :: Word16 -> Word16 -> Integer
+get14bitLen f s = fromIntegral $ ((shift (f .&. 0x3f) 8) .|. s) 
+
+combineDistances :: Word16 -> Word16 -> Word16
+combineDistances h l = (shift h 8) .|. l
 
 loadLen :: Get (Bool, Integer)
 loadLen = do
@@ -93,7 +94,7 @@ loadLen = do
               return (False, (get6bitLen first))
             0x01 -> do
               second <- getWord8
-              return (False, (get14bitLen first second))
+              return $ (False, (get14bitLen (fromIntegral first) (fromIntegral second) ))
             0x02 -> do
               len <- getWord32be
               return (False, (fromIntegral len))
@@ -169,17 +170,17 @@ parseLzf decodedString = do
                              let high_d = h .&. 0x1f
                              obj <- case len of
                                       0 -> do
-                                        getLazyByteString (fromIntegral (high_d + 1))
+                                        getLazyByteString ((fromIntegral high_d :: Int64) + 1)
                                       7 -> do
                                         new_len <- getWord8
-                                        let full_len = new_len + 7 + 2
+                                        let full_len = (fromIntegral new_len :: Word16) + 7 + 2
                                         low_d <- getWord8
-                                        let distance = high_d + low_d
+                                        let distance = combineDistances (fromIntegral high_d) (fromIntegral low_d)
                                         return $ repCopy decodedString distance full_len 
                                       l -> do
                                         low_d <- getWord8
-                                        let distance = high_d + low_d
-                                        return $ repCopy decodedString distance (l+2)
+                                        let distance = combineDistances (fromIntegral high_d) (fromIntegral low_d)
+                                        return $ repCopy decodedString distance ((fromIntegral l :: Word16) + 2)
                              rest <- parseLzf (BL8.append decodedString obj)
                              return (toLazyByteString $ fromLazyByteString $ BL8.append obj rest)
 
@@ -201,7 +202,8 @@ loadStringObj enc = do
                         0x02 -> do
                           loadIntegerObj len enc
                         0x03 -> do
-                          loadLzfStr
+                          str <- loadLzfStr
+                          return str
                     else do
                       getLazyByteString (fromIntegral len)
 
@@ -251,7 +253,7 @@ getZipListMember = do
                        getLazyByteString (fromIntegral len)
                      (0x01,_) -> do
                        second_part <- getWord8
-                       let len = get14bitLen header second_part
+                       let len = get14bitLen (fromIntegral header) (fromIntegral second_part)
                        getLazyByteString (fromIntegral len)
                      (0x02,_) -> do
                        len <- getWord32be
