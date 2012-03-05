@@ -265,5 +265,25 @@ Example (encoding the hash {bar: 1})
 [6e 65] -> 2 free bytes ("ne" from a previous setting of bar to "one". These can be thrown out) 
 
 ==[ff]== -> End of zipmap
+
+h2(#lzf-compression). LZF Compression
+
+The LZF compression is a fast, cousin of the more-popular LZW compression algorithm. 
+
+The first 1-5 byte(s) are a "length-encoded":#length length of the compressed string.
+
+The second 1-5 byte(s) are a "length-encoded":#length length of the decompressed string.
+
+The next n bytes are in compressed lzf format, where n is the first length above.
+
+To decompress LZF, use the following loop:
+# Take one byte and divide it into the first three bits and the remaining five. (LLL | HHHHH)
+# The first three bytes (LLL) will be a number between 0 and 7 and will be referred to as the "length".
+# The remaining five bits specify what is called the "high distance"
+## If the first three bits == 0x00, copy length+1 bytes from the compressed stream and append them to the current decompresses stream. Go to the beginning of this decompression loop and continue.
+## If the first three bits > 0 && < 7, this is "length". Continue.
+## If the first three bits == 7, fetch a new byte and add 7 to its value. This is the "length". Continue.
+# Fetch another byte and add its value to the "high distance" 
+
 </div>
 </body>
