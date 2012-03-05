@@ -1,3 +1,4 @@
+<link rel="stylesheet" type="text/css" href="css/bootstrap.min.css" />
 h2. Format layout
 
 An rdb file begins with "REDIS0003" encoded as a bytestring. [9 bytes]
