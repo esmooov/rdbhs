@@ -136,3 +136,30 @@ Example (encoding the set [1,-1])
 [01 00] -> One little-endian 16-bit member
 
 [ff] -> End of intset
+
+## Zipmap
+
+Zipmaps are space-efficient special encodings for hashes. The max number of members and max size for the zipmap encoding is set in the conf file that the Redis server reads when starting.
+
+The first byte specifies the length of the zipmap. If the length of the zipmap is greater than or equal to 0xfe, disregard this length and traverse the entire zipmap until 0xff is encountered after a member.
+
+Next is a series of key-value pairs encoded as follows:
+- First, the length of key. If this value is less than 0xfd, this is the length of the key. A value of 0xfe indicates the length is encoded as the next 4 bytes in host-byte order.
+- The next n bytes contain a bytestring of the key, where n is the length above.
+- Next is the length of the value encoded in the same manner as the length of the key.
+- Next is an 8-byte integer that specifies the number of free unused bytes after the string. When values are re-set from a longer value to a shorter value, some bytes may be set aside to make it faster to re-increase the size of the value. If you are parsing the structure, however, make sure you consume the free bytes are you consume the value. You can then disregard these free bytes.
+- The next n bytes contain a bytestring of the value, where n is the length above.
+- The next o bytes contain "free" bytes that should be thrown away, where o is the free length above.
+
+The zipmap ends with a 0xff
+
+Example (encoding the hash {bar: 1})
+
+[01] -> The length of the zip-map (1 key-value pair)
+[03] -> The length of the first key
+[62 61 72] -> "bar" 
+[01] -> The length of the first value
+[02] -> Number of free bytes 
+[31] -> "1"
+[6e 65] -> 2 free bytes ("ne" from a previous setting of bar to "one". These can be thrown out) 
+[ff] -> End of zipmap

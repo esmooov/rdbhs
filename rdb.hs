@@ -332,6 +332,7 @@ loadZipMapMember = do
                    val_len <- getZipMapMemberLen first_len_v
                    free <- getWord8
                    val <- getLazyByteString val_len
+                   extra <- getLazyByteString (fromIntegral free)
                    return (key,val)
 
 getZipMapMemberLen :: Word8 -> Get Int64
