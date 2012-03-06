@@ -10,6 +10,7 @@ import Data.Monoid
 import Data.Binary
 import Data.Binary.Get
 import Control.Monad
+import Control.Applicative
 import Debug.Trace
 import qualified System.IO.Unsafe as IOU
 import Foreign
@@ -55,7 +56,7 @@ data RDBObj = RDBString BL8.ByteString |
               RDBSet [BL8.ByteString] |
               RDBZSet [(BL8.ByteString,Double)] |
               RDBHash [(BL8.ByteString,BL8.ByteString)] |
-              RDBPair (BL8.ByteString,RDBObj) |
+              RDBPair (Maybe Integer,BL8.ByteString,RDBObj) |
               RDBDatabase Integer [RDBObj] |
               RDB [RDBObj] deriving (Show)
 
@@ -86,6 +87,16 @@ get14bitLen f s = fromIntegral $ ((shift (f .&. 0x3f) 8) .|. s)
 combineDistances :: Word16 -> Word16 -> Word16
 combineDistances h l = (shift h 8) .|. l
 
+loadTimeMs :: Get Integer
+loadTimeMs = do 
+             time <- getWord64host
+             return $ fromIntegral (fromIntegral time :: Int64)
+
+loadTime :: Get Integer
+loadTime = do 
+             time <- getWord32host
+             return $ fromIntegral (fromIntegral time :: Int64)
+
 loadLen :: Get (Bool, Integer)
 loadLen = do
           first <- getWord8
@@ -107,9 +118,21 @@ loadObjs = do
            case code of
              -- Handle these correctly
              0xfd -> do
-               return ([])
+               skip 1
+               expire <- loadTime
+               t <- trace (show expire) $ getWord8
+               key <- trace (show t) $ loadStringObj False
+               obj <- loadObj t
+               rest <- loadObjs
+               return ((RDBPair (Just expire,key,obj)):rest)
              0xfc -> do
-               return ([])
+               skip 1
+               expire <- loadTimeMs
+               t <- getWord8
+               key <- loadStringObj False
+               obj <- loadObj t
+               rest <- loadObjs
+               return ((RDBPair (Just expire,key,obj)):rest)
              0xfe -> do
                return ([])
              0xff -> do
@@ -119,7 +142,7 @@ loadObjs = do
                key <- loadStringObj False
                obj <- loadObj t
                rest <- loadObjs
-               return ((RDBPair (key,obj)):rest)
+               return ((RDBPair (Nothing,key,obj)):rest)
 
 loadIntegerObj :: Integer -> Bool -> Get BL8.ByteString
 loadIntegerObj len enc = do
