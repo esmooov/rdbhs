@@ -162,6 +162,8 @@ h2(#ziplist). Ziplist
 
 Ziplists are space-efficient special encodings for lists and sorted sets. The max number of members and max size for the ziplist encoding is set in the conf file that the Redis server reads when starting.
 
+First decode the ziplist as a string as specified in the "string":#string section above. Then continue parsing the decoded ziplist as follows:
+
 The first 4 bytes store the number of bytes in the ziplist
 
 The next 4 bytes store the offset (in bytes) to the end of the last entry in the list
@@ -212,6 +214,8 @@ h2(#intset). Intset
 
 The intset is used to encode sets consisting only of integers.
 
+First decode the intset as a string as specified in the "string":#string section above. Then continue parsing the decoded intset as follows:
+
 Intsets begin with a 32-bit length, specifying the length of each member of the intset.
 
 Second, there is a 32-bit number specifying the number of elements in the intset
@@ -235,6 +239,8 @@ Example (encoding the set [1,-1])
 h2(#zipmap). Zipmap
 
 Zipmaps are space-efficient special encodings for hashes. The max number of members and max size for the zipmap encoding is set in the conf file that the Redis server reads when starting.
+
+First decode the zipmap as a string as specified in the "string":#string section above. Then continue parsing the decoded string as follows:
 
 The first byte specifies the length of the zipmap. If the length of the zipmap is greater than or equal to 0xfe, disregard this length and traverse the entire zipmap until 0xff is encountered after a member.
 
