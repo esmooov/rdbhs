@@ -202,7 +202,6 @@ loadZSetObj = do
 
 loadZipListObj :: Get [BL8.ByteString]
 loadZipListObj = do
-                 (isEncType,len) <- loadLen
                  ziplen <- getWord32le
                  offset <- getWord32le
                  num_entries <- getWord16le
@@ -258,7 +257,6 @@ getZipLen = do
 
 loadIntSetObj :: Get [BL8.ByteString]
 loadIntSetObj = do
-                (isEncType,len) <- loadLen
                 enc <- getWord32le
                 setlen <- getWord32le
                 replicateM (fromIntegral setlen) (loadIntSetMember enc)
@@ -274,6 +272,9 @@ loadIntSetMember enc = case enc of
                          0x08 -> do
                             obj <- getWord64le
                             return $ BL8.pack $ show (fromIntegral obj :: Int64)
+                         l -> do
+                            obj <- trace (show enc) $ getWord8
+                            return "1"
 
 loadHashObj :: Get [(BL8.ByteString,BL8.ByteString)]
 loadHashObj = do
