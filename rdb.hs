@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, GADTs, KindSignatures, TypeFamilies #-}
+{-# LANGUAGE OverloadedStrings, GADTs, KindSignatures, TypeFamilies, BangPatterns #-}
 
 import Blaze.ByteString.Builder
 import Data.Word
@@ -288,7 +288,6 @@ loadHashMember = do
 
 loadZipMapObj :: Get [(BL8.ByteString,BL8.ByteString)]
 loadZipMapObj = do
-                (isEncType,len) <- loadLen
                 zmlen <- getWord8
                 loadZipMapMembers
 
@@ -351,19 +350,23 @@ loadObj t = case t of
                 return (RDBHash obj)
               -- ^ Load a zipmap encoded hash
               0x09 -> do
-                obj <- loadZipMapObj
+                binstr <- loadStringObj True 
+                let obj = runGet loadZipMapObj binstr
                 return (RDBHash obj)
               -- ^ Load a ziplist encoded list
               0x0a -> do
-                obj <- loadZipListObj
+                binstr <- loadStringObj True 
+                let obj = runGet loadZipListObj binstr
                 return (RDBList obj)          
               -- ^ Load an intset encoded set
               0x0b -> do
-                obj <- loadIntSetObj
+                binstr <- loadStringObj True 
+                let obj = runGet loadIntSetObj binstr
                 return (RDBSet obj)
               -- ^ Load a ziplist encoded zset
               0x0c -> do
-                obj <- loadZipListObj
+                binstr <- loadStringObj True 
+                let obj = runGet loadZipListObj binstr
                 return (RDBZSet $ toZsetPairs obj)
 
 loadObjs :: Get [RDBObj]
@@ -408,11 +411,11 @@ loadObjs_ f = do
 
 getPairs_ :: (Monad m) => (Maybe Integer -> BL8.ByteString -> RDBObj -> Get (m a)) -> Maybe Integer -> Get (m a)
 getPairs_ f ex = do
-                t <- getWord8
-                key <- loadStringObj False
-                obj <- loadObj t
-                rest <- loadObjs_ f
-                out <- f ex key obj
+                !t <- getWord8
+                !key <- loadStringObj False
+                !obj <- loadObj t
+                !rest <- loadObjs_ f
+                !out <- f ex key obj
                 return (out >> rest)
 
 
