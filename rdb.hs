@@ -175,7 +175,7 @@ repCopy str dist len = BL8.take (fromIntegral len) (BL8.cycle window) where
 
 loadStringObj :: Bool -> Get BL8.ByteString
 loadStringObj enc = do 
-                    (isEncType,len) <- loadLen
+                    (!isEncType,!len) <- loadLen
                     if isEncType
                       then case len of
                              0x00 -> loadIntegerObj len enc
@@ -332,7 +332,7 @@ loadObj t = case t of
               -- ^ Load a string value
               0x00 -> do
                 obj <- loadStringObj True
-                return (RDBString obj)
+                obj `seq` return (RDBString obj)
               -- ^ Load a list value
               0x01 -> do
                 obj <- loadListObj
@@ -412,11 +412,11 @@ loadObjs_ f = do
 
 getPairs_ :: (Monad m) => (Maybe Integer -> BL8.ByteString -> RDBObj -> Get (m a)) -> Maybe Integer -> Get (m a)
 getPairs_ f ex = do
-                !t <- getWord8
-                !key <- loadStringObj False
-                !obj <- loadObj t
-                !rest <- loadObjs_ f
-                !out <- f ex key obj
+                t <- getWord8
+                key <- loadStringObj False
+                obj <- loadObj t
+                rest <- loadObjs_ f
+                out <- f ex key obj
                 return (out >> rest)
 
 
