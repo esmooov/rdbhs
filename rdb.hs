@@ -7,15 +7,16 @@ import Data.Bits
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Lazy.Char8 as BL8
 import Data.Monoid
-import Data.Binary
-import Data.Binary.Get
+import Data.Serialize
+import Data.Serialize.Get
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Applicative
 import Debug.Trace
 import qualified System.IO.Unsafe as IOU
-import Foreign
-import Foreign.C
+import Data.Conduit hiding (Done)
+import qualified Data.Conduit.Binary as C
+
 redisHeader = BL8.pack "REDIS0003"
 
 -- Redis types
@@ -52,26 +53,19 @@ len14bit = 0x01
 len32bit = 0x02
 len_enc = 0x04
 
-data RDBObj = RDBString BL8.ByteString | 
-              RDBList [BL8.ByteString] |
-              RDBSet [BL8.ByteString] |
-              RDBZSet [(BL8.ByteString,Double)] |
-              RDBHash [(BL8.ByteString,BL8.ByteString)] |
-              RDBPair (Maybe Integer,BL8.ByteString,RDBObj) |
+data RDBObj = RDBString B8.ByteString | 
+              RDBList [B8.ByteString] |
+              RDBSet [B8.ByteString] |
+              RDBZSet [(B8.ByteString,Double)] |
+              RDBHash [(B8.ByteString,B8.ByteString)] |
+              RDBPair (Maybe Integer,B8.ByteString,RDBObj) |
               RDBDatabase Integer [RDBObj] |
               RDBNull |
               RDB [RDBObj] deriving (Show)
 
-instance Binary RDBObj where
-  get = do
-        header <- getBytes 9
-        dbs <- getDBs
-        eof <- getWord8
-        return (RDB dbs)
-
-toZsetPairs :: [BL8.ByteString] -> [(BL8.ByteString,Double)]
+toZsetPairs :: [B8.ByteString] -> [(B8.ByteString,Double)]
 toZsetPairs [] = []
-toZsetPairs l = (x, read $ BL8.unpack y) : toZsetPairs xs where
+toZsetPairs l = (x, read $ B8.unpack y) : toZsetPairs xs where
             (x:(y:[]),xs) = splitAt 2 l
 
 getEncoding :: Word8 -> Word8
@@ -112,17 +106,17 @@ loadLen = do
               return (False, fromIntegral len)
             0x03 -> return (True, get6bitLen first)
 
-loadIntegerObj :: Integer -> Bool -> Get BL8.ByteString
+loadIntegerObj :: Integer -> Bool -> Get B8.ByteString
 loadIntegerObj len enc = case len of 
                             0x00 -> do
                               str <- getWord8
-                              return $ BL8.pack $ show (fromIntegral str :: Int8) 
+                              return $ B8.pack $ show (fromIntegral str :: Int8) 
                             0x01 -> do
                               str <- getWord16le
-                              return $ BL8.pack $ show (fromIntegral str :: Int16)
+                              return $ B8.pack $ show (fromIntegral str :: Int16)
                             0x02 -> do
                               str <- getWord32le
-                              return $ BL8.pack $ show (fromIntegral str :: Int32) 
+                              return $ B8.pack $ show (fromIntegral str :: Int32) 
 
 loadDoubleValue :: Get Double
 loadDoubleValue = do
@@ -132,29 +126,30 @@ loadDoubleValue = do
                     0xfe -> return $ read "Infinity"
                     0xfd -> return $ read "NaN"
                     l -> do
-                      val <- getLazyByteString (fromIntegral l)
-                      return $ read $ BL8.unpack val
+                      val <- getByteString (fromIntegral l)
+                      return $ read $ B8.unpack val
 
-loadLzfStr :: Get BL8.ByteString
+loadLzfStr :: Get B8.ByteString
 loadLzfStr = do
              (clenEnc, clen) <- loadLen
              (lenEnc, len) <- loadLen
-             str <- getLazyByteString (fromIntegral clen)
+             str <- getByteString (fromIntegral clen)
              return $ decompressLzfStr str
 
-decompressLzfStr :: BL8.ByteString -> BL8.ByteString
-decompressLzfStr = runGet (parseLzf BL8.empty)
+decompressLzfStr :: B8.ByteString -> B8.ByteString
+decompressLzfStr s = str where
+                     (Right str) = runGet (parseLzf B8.empty) s
                                 
-parseLzf :: BL8.ByteString -> Get BL8.ByteString
+parseLzf :: B8.ByteString -> Get B8.ByteString
 parseLzf decodedString = do
                          empty <- isEmpty
-                         if empty then return BL8.empty else
+                         if empty then return B8.empty else
                            do
                              h <- getWord8
                              let len = shift (h .&. 0xe0) (-5)
                              let high_d = h .&. 0x1f
                              obj <- case len of
-                                      0 -> getLazyByteString ((fromIntegral high_d :: Int64) + 1)
+                                      0 -> getByteString ((fromIntegral high_d :: Int) + 1)
                                       7 -> do
                                         new_len <- getWord8
                                         let full_len = (fromIntegral new_len :: Word16) + 7 + 2
@@ -165,15 +160,15 @@ parseLzf decodedString = do
                                         low_d <- getWord8
                                         let distance = combineDistances (fromIntegral high_d) (fromIntegral low_d)
                                         return $ repCopy decodedString distance ((fromIntegral l :: Word16) + 2)
-                             rest <- parseLzf (BL8.append decodedString obj)
-                             return (toLazyByteString $ fromLazyByteString $ BL8.append obj rest)
+                             rest <- parseLzf (B8.append decodedString obj)
+                             return (B8.append obj rest)
 
-repCopy :: (Integral a) => BL8.ByteString -> a -> a -> BL8.ByteString
-repCopy str dist len = BL8.take (fromIntegral len) (BL8.cycle window) where
-                       window = BL8.drop (olen - fromIntegral dist - 1) str
-                       olen = BL8.length str
+repCopy :: (Integral a) => B8.ByteString -> a -> a -> B8.ByteString
+repCopy str dist len = B8.concat $ BL8.toChunks $ BL8.take (fromIntegral len) (BL8.cycle window) where
+                       window = BL8.fromChunks [B8.drop (olen - fromIntegral dist - 1) str]
+                       olen = B8.length str
 
-loadStringObj :: Bool -> Get BL8.ByteString
+loadStringObj :: Bool -> Get B8.ByteString
 loadStringObj enc = do 
                     (isEncType,len) <- loadLen
                     if isEncType
@@ -182,25 +177,25 @@ loadStringObj enc = do
                              0x01 -> loadIntegerObj len enc
                              0x02 -> loadIntegerObj len enc
                              0x03 -> loadLzfStr
-                      else getLazyByteString (fromIntegral len)
+                      else getByteString (fromIntegral len)
 
-loadListObj :: Get [BL8.ByteString]
+loadListObj :: Get [B8.ByteString]
 loadListObj = do
               (isEncType,len) <- loadLen
               replicateM (fromIntegral len) (loadStringObj True)
 
-loadZSetPair :: Get (BL8.ByteString, Double)
+loadZSetPair :: Get (B8.ByteString, Double)
 loadZSetPair = do
                value <- loadStringObj True
                weight <- loadDoubleValue
                return (value,weight)
 
-loadZSetObj :: Get [(BL8.ByteString,Double)]
+loadZSetObj :: Get [(B8.ByteString,Double)]
 loadZSetObj = do
               (isEncType,len) <- loadLen
               replicateM (fromIntegral len) loadZSetPair
 
-loadZipListObj :: Get [BL8.ByteString]
+loadZipListObj :: Get [B8.ByteString]
 loadZipListObj = do
                  ziplen <- getWord32le
                  offset <- getWord32le
@@ -209,7 +204,7 @@ loadZipListObj = do
                  eoz <- getWord8
                  return obj
 
-loadZipListMembers :: Get [BL8.ByteString]
+loadZipListMembers :: Get [B8.ByteString]
 loadZipListMembers = do
                      opc <- lookAhead getWord8
                      if opc == 0xff
@@ -219,30 +214,30 @@ loadZipListMembers = do
                             rest <- loadZipListMembers
                             return (obj:rest)
                             
-getZipListMember :: Get BL8.ByteString
+getZipListMember :: Get B8.ByteString
 getZipListMember = do
                    prevLen <- getZipLen
                    header <- getWord8
                    case (getEncoding header, getSecondEncoding header) of
                      (0x00,_) -> do
                        let len = get6bitLen header
-                       getLazyByteString (fromIntegral len)
+                       getByteString (fromIntegral len)
                      (0x01,_) -> do
                        second_part <- getWord8
                        let len = get14bitLen (fromIntegral header) (fromIntegral second_part)
-                       getLazyByteString (fromIntegral len)
+                       getByteString (fromIntegral len)
                      (0x02,_) -> do
                        len <- getWord32be
-                       getLazyByteString (fromIntegral len)
+                       getByteString (fromIntegral len)
                      (0x03,0x00) -> do
                        obj <- getWord16le
-                       return $ BL8.pack $ show (fromIntegral obj :: Int16)
+                       return $ B8.pack $ show (fromIntegral obj :: Int16)
                      (0x03,0x01) -> do
                        obj <- getWord32le
-                       return $ BL8.pack $ show (fromIntegral obj :: Int32)
+                       return $ B8.pack $ show (fromIntegral obj :: Int32)
                      (0x03,0x02) -> do
                        obj <- getWord64le
-                       return $ BL8.pack $ show (fromIntegral obj :: Int64)
+                       return $ B8.pack $ show (fromIntegral obj :: Int64)
 
 getZipLen :: Get Integer
 getZipLen = do
@@ -255,44 +250,44 @@ getZipLen = do
 
               _ -> return (fromIntegral prevLen)
 
-loadIntSetObj :: Get [BL8.ByteString]
+loadIntSetObj :: Get [B8.ByteString]
 loadIntSetObj = do
                 enc <- getWord32le
                 setlen <- getWord32le
                 replicateM (fromIntegral setlen) (loadIntSetMember enc)
 
-loadIntSetMember :: Word32 -> Get BL8.ByteString
+loadIntSetMember :: Word32 -> Get B8.ByteString
 loadIntSetMember enc = case enc of
                          0x02 -> do
                             obj <- getWord16le
-                            return $ BL8.pack $ show (fromIntegral obj :: Int16)
+                            return $ B8.pack $ show (fromIntegral obj :: Int16)
                          0x04 -> do
                             obj <- getWord32le
-                            return $ BL8.pack $ show (fromIntegral obj :: Int32)
+                            return $ B8.pack $ show (fromIntegral obj :: Int32)
                          0x08 -> do
                             obj <- getWord64le
-                            return $ BL8.pack $ show (fromIntegral obj :: Int64)
+                            return $ B8.pack $ show (fromIntegral obj :: Int64)
                          l -> do
                             obj <- trace (show enc) $ getWord8
                             return "1"
 
-loadHashObj :: Get [(BL8.ByteString,BL8.ByteString)]
+loadHashObj :: Get [(B8.ByteString,B8.ByteString)]
 loadHashObj = do
               (isEncType,len) <- loadLen
               replicateM (fromIntegral len) loadHashMember
 
-loadHashMember :: Get (BL8.ByteString,BL8.ByteString)
+loadHashMember :: Get (B8.ByteString,B8.ByteString)
 loadHashMember = do
                  key <- loadStringObj True
                  value <- loadStringObj True
                  return (key,value)
 
-loadZipMapObj :: Get [(BL8.ByteString,BL8.ByteString)]
+loadZipMapObj :: Get [(B8.ByteString,B8.ByteString)]
 loadZipMapObj = do
                 zmlen <- getWord8
                 loadZipMapMembers
 
-loadZipMapMembers :: Get [(BL8.ByteString,BL8.ByteString)]
+loadZipMapMembers :: Get [(B8.ByteString,B8.ByteString)]
 loadZipMapMembers = do
                     is_eoz <- lookAhead getWord8
                     case is_eoz of
@@ -304,19 +299,19 @@ loadZipMapMembers = do
                         rest <- loadZipMapMembers
                         return (obj:rest)
 
-loadZipMapMember :: Get (BL8.ByteString,BL8.ByteString)
+loadZipMapMember :: Get (B8.ByteString,B8.ByteString)
 loadZipMapMember = do
                    first_len <- getWord8
                    key_len <- getZipMapMemberLen first_len
-                   key <- getLazyByteString (fromIntegral key_len)
+                   key <- getByteString (fromIntegral key_len)
                    first_len_v <- getWord8
                    val_len <- getZipMapMemberLen first_len_v
                    free <- getWord8
-                   val <- getLazyByteString val_len
-                   extra <- getLazyByteString (fromIntegral free)
+                   val <- getByteString val_len
+                   extra <- getByteString (fromIntegral free)
                    return (key,val)
 
-getZipMapMemberLen :: Word8 -> Get Int64
+getZipMapMemberLen :: Word8 -> Get Int
 getZipMapMemberLen first_len = case first_len of 
 
                                  0xfd -> do
@@ -352,22 +347,22 @@ loadObj t = case t of
               -- ^ Load a zipmap encoded hash
               0x09 -> do
                 binstr <- loadStringObj True 
-                let obj = runGet loadZipMapObj binstr
+                let (Right obj) = runGet loadZipMapObj binstr
                 return (RDBHash obj)
               -- ^ Load a ziplist encoded list
               0x0a -> do
                 binstr <- loadStringObj True 
-                let obj = runGet loadZipListObj binstr
+                let (Right obj) = runGet loadZipListObj binstr
                 return (RDBList obj)          
               -- ^ Load an intset encoded set
               0x0b -> do
                 binstr <- loadStringObj True 
-                let obj = runGet loadIntSetObj binstr
+                let (Right obj) = runGet loadIntSetObj binstr
                 return (RDBSet obj)
               -- ^ Load a ziplist encoded zset
               0x0c -> do
                 binstr <- loadStringObj True 
-                let obj = runGet loadZipListObj binstr
+                let (Right obj) = runGet loadZipListObj binstr
                 return (RDBZSet $ toZsetPairs obj)
 
 loadObjs :: Get [RDBObj]
@@ -394,32 +389,6 @@ getPairs ex = do
               rest <- loadObjs
               return (RDBPair (ex,key,obj):rest)
 
-loadObjs_ :: (Monad m) => (Maybe Integer -> BL8.ByteString -> RDBObj -> Get (m a)) -> Get (m a)
-loadObjs_ f = do
-             code <- lookAhead getWord8
-             case code of
-               0xfd -> do
-                 skip 1
-                 expire <- loadTime
-                 getPairs_ f (Just expire)
-               0xfc -> do
-                 skip 1
-                 expire <- loadTimeMs
-                 getPairs_ f (Just expire)
-               0xfe -> f Nothing "Switching Database" RDBNull
-               0xff -> f Nothing "" RDBNull
-               _ -> getPairs_ f Nothing
-
-getPairs_ :: (Monad m) => (Maybe Integer -> BL8.ByteString -> RDBObj -> Get (m a)) -> Maybe Integer -> Get (m a)
-getPairs_ f ex = do
-                !t <- getWord8
-                !key <- loadStringObj False
-                !obj <- loadObj t
-                !rest <- loadObjs_ f
-                !out <- f ex key obj
-                return (out >> rest)
-
-
 getDBs :: Get [RDBObj]
 getDBs = do
          opc <- lookAhead getWord8
@@ -429,27 +398,9 @@ getDBs = do
                 (isEncType,dbnum) <- loadLen
                 objs <- loadObjs
                 rest <- getDBs
-                return (RDBDatabase dbnum objs : rest)
+                return (objs ++ rest)
            else return [] 
 
-getDBs_ :: (Monad m) => (Maybe Integer -> BL8.ByteString -> RDBObj -> Get (m a)) -> Get (m a)
-getDBs_ f = do
-           opc <- lookAhead getWord8
-           if opc == opcodeSelectdb
-             then do
-                  skip 1
-                  (isEncType,dbnum) <- loadLen
-                  objs <- loadObjs_ f
-                  rest <- getDBs_ f
-                  return (objs >> rest)
-             else f Nothing "EOF" RDBNull
-
-processRDB_ :: (Monad m) => (Maybe Integer -> BL8.ByteString -> RDBObj -> Get (m a)) -> Get (m a)
-processRDB_ f = do
-                header <- getBytes 9
-                dbs <- getDBs_ f
-                eof <- getWord8
-                return (dbs)
 
 printRDBObj :: Maybe Integer -> BL8.ByteString -> RDBObj -> Get (IO ())
 printRDBObj (Just exp) key obj = return $ (print ("Expires: " ++ show exp) >>
@@ -466,7 +417,71 @@ printRDBObj Nothing key obj = return $ (print ("Key: " ++ (BL8.unpack key)) >>
        {-testf <- BL8.readFile "./dump.rdb"-}
        {-print $ show (decode testf :: RDBObj)-}
 
+{-main = do-}
+       {-testf <- BL8.readFile "./dump.rdb"-}
+       {-runGet (processRDB_ printRDBObj)  testf-}
+
+
+printRDB =
+  sinkState Nothing
+  pushRDB
+  (\state -> return (print "Done"))
+
+{-printRDB =-}
+  {-sinkState Nothing-}
+  {-(\state input -> do-}
+       {-let result = runGetPartial (getBytes 5000) input-}
+       {-case result of-}
+         {-(Fail str) -> do -}
+            {-liftIO $ print str-}
+            {-return $ StateProcessing Nothing-}
+         {-(Partial parser) -> do-}
+            {-return $ StateProcessing (Just parser)-}
+         {-(Done r l) -> do-}
+            {-liftIO $ print r-}
+            {-return $ StateProcessing Nothing)-}
+  {-(\state -> return (print "Done"))-}
+
+{-printRDB = -}
+    {-SinkData (push Nothing) (close Nothing) -}
+  {-where-}
+    {-push state input = -}
+      {-liftIO $ print ("O: " ++ input) >>-}
+      {-return $ Processing (push Nothing input) (close Nothing)-}
+    {-close state = return state-}
+
+{-printRDB = sinkIO-}
+  {-(print "Start")-}
+  {-(\x -> print "Done")-}
+  {-(\_ input -> do-}
+        {-liftIO $ print input-}
+        {-return IOProcessing)-}
+  {-(\_ -> return ())-}
+
+pushRDB Nothing input = case result of
+                           (Fail str) -> do
+                             liftIO $ print str
+                             return $ StateProcessing Nothing
+                           (Partial parser) -> do 
+                             return $ StateProcessing (Just parser)
+                           (Done result leftover) -> do
+                             liftIO $ mapM_ print result
+                             return $ StateProcessing Nothing
+                        where
+                          result = runGetPartial (getBytes 9 >> getDBs) input
+
+pushRDB (Just parser) input = case result of
+                               (Fail str) -> do
+                                 liftIO $ print str
+                                 return $ StateProcessing Nothing
+                               (Partial parser) -> do 
+                                 return $ StateProcessing (Just parser)
+                               (Done result leftover) -> do
+                                 liftIO $ mapM_ print result
+                                 return $ StateProcessing Nothing
+                            where
+                              result = parser input
+
 main = do
-       testf <- BL8.readFile "./dump.rdb"
-       runGet (processRDB_ printRDBObj)  testf
+       runResourceT $ C.sourceFile "./dump.rdb" $$ printRDB
         
