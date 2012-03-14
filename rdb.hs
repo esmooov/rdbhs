@@ -138,7 +138,7 @@ loadLzfStr = do
 
 decompressLzfStr :: BL8.ByteString -> B8.ByteString
 decompressLzfStr s = B8.concat $ BL8.toChunks str where
-                     (Right str) = runGetLazy (parseLzf BL8.empty) s
+                     (Right !str) = runGetLazy (parseLzf BL8.empty) s
                                 
 parseLzf :: BL8.ByteString -> Get BL8.ByteString
 parseLzf decodedString = do
