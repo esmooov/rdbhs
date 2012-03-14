@@ -61,6 +61,7 @@ data RDBObj = RDBString B8.ByteString |
               RDBHash [(B8.ByteString,B8.ByteString)] |
               RDBPair (Maybe Integer,B8.ByteString,RDBObj) |
               RDBDatabase Integer [RDBObj] |
+              RDBSelect Integer |
               RDBNull |
               RDB [RDBObj] deriving (Show,Eq)
 
@@ -416,7 +417,7 @@ getObjInc = do
               then do
                    skip 1
                    (isEncType,dbnum) <- loadLen
-                   getObjInc
+                   return $ RDBSelect (fromIntegral dbnum)
               else do
                  code <- lookAhead getWord8
                  case code of
@@ -483,6 +484,7 @@ loadRDB c =
 
 saveObj :: RDBObj -> R.Redis ()
 saveObj RDBNull = do R.ping >> return ()
+saveObj (RDBSelect i) = R.select i >> return ()
 saveObj (RDBPair (exp,key,RDBString val)) = R.set key val >> setExpire exp key
 saveObj (RDBPair (exp,key,RDBList vals)) = R.rpush key vals >> setExpire exp key
 saveObj (RDBPair (exp,key,RDBSet vals)) = R.sadd key vals >> setExpire exp key
@@ -493,13 +495,13 @@ setExpire Nothing k = return ()
 setExpire (Just exp) k = R.expireat k exp >> return ()
 
 
-pushLoad c Nothing !input = do liftIO $ R.runRedis c $ sequence_ $ map saveObj st
+pushLoad c Nothing !input = do liftIO $ R.runRedis c $ sequence_ $ reverse $ map saveObj st
                                return $ StateProcessing p
                                where
                                  (Done r l) = runGetPartial (getBytes 9) input
                                  (!st,!p) = repParse l ([],Nothing)
 
-pushLoad c (Just parser) !input = do liftIO $ R.runRedis c $ sequence $ map saveObj st
+pushLoad c (Just parser) !input = do liftIO $ R.runRedis c $ sequence $ reverse $ map saveObj st
                                      return $ StateProcessing p
                                       where
                                         (!st,!p) = repParse input ([],Just parser)
