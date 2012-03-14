@@ -389,6 +389,13 @@ getPairs ex = do
               rest <- loadObjs
               return (RDBPair (ex,key,obj):rest)
 
+getPair :: Maybe Integer -> Get RDBObj
+getPair ex = do
+              t <- getWord8
+              key <- loadStringObj False
+              obj <- loadObj t
+              return $ RDBPair (ex,key,obj)
+
 getDBs :: Get [RDBObj]
 getDBs = do
          opc <- lookAhead getWord8
@@ -401,17 +408,28 @@ getDBs = do
                 return (objs ++ rest)
            else return [] 
 
-
-printRDBObj :: Maybe Integer -> BL8.ByteString -> RDBObj -> Get (IO ())
-printRDBObj (Just exp) key obj = return $ (print ("Expires: " ++ show exp) >>
-                                           print ("Key: " ++ (BL8.unpack key)) >> 
-                                           print ("Obj: " ++ show obj))
-
-printRDBObj Nothing key RDBNull = return $ (print $ BL8.unpack key)
-printRDBObj Nothing key obj = return $ (print ("Key: " ++ (BL8.unpack key)) >> 
-                                        print ("Obj: " ++ show obj))
-
-{-output = toByteString $ mconcat [redis_header, redis_eof]-}
+getObjInc :: Get RDBObj
+getObjInc = do
+            opc <- lookAhead getWord8
+            if opc == opcodeSelectdb
+              then do
+                   skip 1
+                   (isEncType,dbnum) <- loadLen
+                   getObjInc
+              else do
+                 code <- lookAhead getWord8
+                 case code of
+                   0xfd -> do
+                     skip 1
+                     expire <- loadTime
+                     getPair (Just expire)
+                   0xfc -> do
+                     skip 1
+                     expire <- loadTimeMs
+                     getPair (Just expire)
+                   0xfe -> return RDBNull
+                   0xff -> return RDBNull
+                   _ -> getPair Nothing
 
 {-main = do-}
        {-testf <- BL8.readFile "./dump.rdb"-}
@@ -421,66 +439,34 @@ printRDBObj Nothing key obj = return $ (print ("Key: " ++ (BL8.unpack key)) >>
        {-testf <- BL8.readFile "./dump.rdb"-}
        {-runGet (processRDB_ printRDBObj)  testf-}
 
+repParse input (st,Nothing) = case result of
+                                   (Partial parser) -> (st,Just parser)
+                                   (Done !res !leftover) -> repParse leftover (res:st,Nothing)
+                                where
+                                  result = runGetPartial getObjInc input
+
+repParse input (st,Just parser) = case result of
+                                   (Partial parser) -> (st,Just parser)
+                                   (Done !res !leftover) -> repParse leftover (res:st,Nothing)
+                                  where
+                                   result = parser input
+
 
 printRDB =
   sinkState Nothing
   pushRDB
   (\state -> return (print "Done"))
 
-{-printRDB =-}
-  {-sinkState Nothing-}
-  {-(\state input -> do-}
-       {-let result = runGetPartial (getBytes 5000) input-}
-       {-case result of-}
-         {-(Fail str) -> do -}
-            {-liftIO $ print str-}
-            {-return $ StateProcessing Nothing-}
-         {-(Partial parser) -> do-}
-            {-return $ StateProcessing (Just parser)-}
-         {-(Done r l) -> do-}
-            {-liftIO $ print r-}
-            {-return $ StateProcessing Nothing)-}
-  {-(\state -> return (print "Done"))-}
-
-{-printRDB = -}
-    {-SinkData (push Nothing) (close Nothing) -}
-  {-where-}
-    {-push state input = -}
-      {-liftIO $ print ("O: " ++ input) >>-}
-      {-return $ Processing (push Nothing input) (close Nothing)-}
-    {-close state = return state-}
-
-{-printRDB = sinkIO-}
-  {-(print "Start")-}
-  {-(\x -> print "Done")-}
-  {-(\_ input -> do-}
-        {-liftIO $ print input-}
-        {-return IOProcessing)-}
-  {-(\_ -> return ())-}
-
-pushRDB Nothing input = case result of
-                           (Fail str) -> do
-                             liftIO $ print str
-                             return $ StateProcessing Nothing
-                           (Partial parser) -> do 
-                             return $ StateProcessing (Just parser)
-                           (Done result leftover) -> do
-                             liftIO $ mapM_ print result
-                             return $ StateProcessing Nothing
-                        where
-                          result = runGetPartial (getBytes 9 >> getDBs) input
-
-pushRDB (Just parser) input = case result of
-                               (Fail str) -> do
-                                 liftIO $ print str
-                                 return $ StateProcessing Nothing
-                               (Partial parser) -> do 
-                                 return $ StateProcessing (Just parser)
-                               (Done result leftover) -> do
-                                 liftIO $ mapM_ print result
-                                 return $ StateProcessing Nothing
+pushRDB Nothing input = do liftIO $ mapM_ print st
+                           return $ StateProcessing p
                             where
-                              result = parser input
+                              (Done r l) = runGetPartial (getBytes 9) input
+                              (st,p) = repParse l ([],Nothing)
+
+pushRDB (Just parser) input = do liftIO $ mapM_ print st
+                                 return $ StateProcessing p
+                                 where
+                                  (st,p) = repParse input ([],Just parser)
 
 main = do
        runResourceT $ C.sourceFile "./dump.rdb" $$ printRDB
