@@ -442,8 +442,6 @@ getObjInc = do
        {-testf <- BL8.readFile "./dump.rdb"-}
        {-runGet (processRDB_ printRDBObj)  testf-}
 
-repParse "" _ = ([],Nothing)
-
 repParse input (st,Nothing) = case result of
                                    (Partial parser) -> (st,Just parser)
                                    (Done !res "") -> (res:st,Just (\input -> Done RDBNull input))
@@ -464,17 +462,16 @@ printRDB =
   pushRDB
   (\state -> return ("Done"))
 
-pushRDB Nothing input = do liftIO $ mapM_ print st
+pushRDB Nothing input = do liftIO $ mapM_ (\x -> if x == RDBNull then return () else print x) st
                            return $ StateProcessing p
                             where
                               (Done r l) = runGetPartial (getBytes 9) input
                               (st,p) = repParse l ([],Nothing)
 
-pushRDB (Just parser) input = if st == [] then return $ StateDone Nothing "Done"
-                              else do liftIO $ mapM_ print st
-                                      return $ StateProcessing p
-                                       where
-                                      (st,p) = repParse input ([],Just parser)
+pushRDB (Just parser) input = do liftIO $ mapM_ (\x -> if x == RDBNull then return () else print x) st
+                                 return $ StateProcessing p
+                                   where
+                                     (st,p) = repParse input ([],Just parser)
 
 
 main = do
