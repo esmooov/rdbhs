@@ -131,25 +131,25 @@ loadDoubleValue = do
 
 loadLzfStr :: Get B8.ByteString
 loadLzfStr = do
-             (clenEnc, clen) <- loadLen
-             (lenEnc, len) <- loadLen
-             str <- getByteString (fromIntegral clen)
+             (clenEnc, !clen) <- loadLen
+             (lenEnc, !len) <- loadLen
+             !str <- getLazyByteString (fromIntegral clen)
              return $ decompressLzfStr str
 
-decompressLzfStr :: B8.ByteString -> B8.ByteString
-decompressLzfStr s = str where
-                     (Right str) = runGet (parseLzf B8.empty) s
+decompressLzfStr :: BL8.ByteString -> B8.ByteString
+decompressLzfStr s = B8.concat $ BL8.toChunks str where
+                     (Right str) = runGetLazy (parseLzf BL8.empty) s
                                 
-parseLzf :: B8.ByteString -> Get B8.ByteString
+parseLzf :: BL8.ByteString -> Get BL8.ByteString
 parseLzf decodedString = do
                          empty <- isEmpty
-                         if empty then return B8.empty else
+                         if empty then return BL8.empty else
                            do
                              h <- getWord8
                              let len = shift (h .&. 0xe0) (-5)
                              let high_d = h .&. 0x1f
                              obj <- case len of
-                                      0 -> getByteString ((fromIntegral high_d :: Int) + 1)
+                                      0 -> getLazyByteString ((fromIntegral high_d :: Int64) + 1)
                                       7 -> do
                                         new_len <- getWord8
                                         let full_len = (fromIntegral new_len :: Word16) + 7 + 2
@@ -160,13 +160,13 @@ parseLzf decodedString = do
                                         low_d <- getWord8
                                         let distance = combineDistances (fromIntegral high_d) (fromIntegral low_d)
                                         return $ repCopy decodedString distance ((fromIntegral l :: Word16) + 2)
-                             rest <- parseLzf (B8.append decodedString obj)
-                             return (B8.append obj rest)
+                             rest <- parseLzf (BL8.append decodedString obj)
+                             return (BL8.append obj rest)
 
-repCopy :: (Integral a) => B8.ByteString -> a -> a -> B8.ByteString
-repCopy str dist len = B8.concat $ BL8.toChunks $ BL8.take (fromIntegral len) (BL8.cycle window) where
-                       window = BL8.fromChunks [B8.drop (olen - fromIntegral dist - 1) str]
-                       olen = B8.length str
+repCopy :: (Integral a) => BL8.ByteString -> a -> a -> BL8.ByteString
+repCopy str dist len = BL8.take (fromIntegral len) (BL8.cycle window) where
+                       window = BL8.drop (olen - fromIntegral dist - 1) str
+                       olen = BL8.length str
 
 loadStringObj :: Bool -> Get B8.ByteString
 loadStringObj enc = do 
@@ -442,19 +442,19 @@ getObjInc = do
        {-testf <- BL8.readFile "./dump.rdb"-}
        {-runGet (processRDB_ printRDBObj)  testf-}
 
-repParse input (st,Nothing) = case result of
+repParse !input (!st,Nothing) = case result of
                                    (Partial parser) -> (st,Just parser)
                                    (Done !res "") -> (res:st,Just (\input -> Done RDBNull input))
                                    (Done !res !leftover) -> repParse leftover (res:st,Nothing)
                                 where
-                                  result = runGetPartial getObjInc input
+                                  !result = runGetPartial getObjInc input
 
-repParse input (st,Just parser) = case result of
+repParse !input (!st,Just parser) = case result of
                                    (Partial parser) -> (st,Just parser)
                                    (Done !res "") -> (res:st,Just (\input -> Done RDBNull input))
                                    (Done !res !leftover) -> repParse leftover (res:st,Nothing)
                                   where
-                                   result = parser input
+                                   !result = parser input
 
 printRDB :: ResourceIO m => Sink B8.ByteString m ()
 printRDB =
@@ -462,16 +462,16 @@ printRDB =
   pushRDB
   (\state -> return ())
 
-pushRDB Nothing input = do liftIO $ mapM_ (\x -> if x == RDBNull then return () else print x) st
-                           return $ StateProcessing p
+pushRDB Nothing !input = do liftIO $ mapM_ (\x -> if x == RDBNull then return () else print x) st
+                            return $ StateProcessing p
                             where
                               (Done r l) = runGetPartial (getBytes 9) input
-                              (st,p) = repParse l ([],Nothing)
+                              (!st,!p) = repParse l ([],Nothing)
 
-pushRDB (Just parser) input = do liftIO $ mapM_ (\x -> if x == RDBNull then return () else print x) st
-                                 return $ StateProcessing p
+pushRDB (Just parser) !input = do liftIO $ mapM_ (\x -> if x == RDBNull then return () else print x) st
+                                  return $ StateProcessing p
                                    where
-                                     (st,p) = repParse input ([],Just parser)
+                                     (!st,!p) = repParse input ([],Just parser)
 
 
 main = do
