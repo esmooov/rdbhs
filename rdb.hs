@@ -14,8 +14,9 @@ import Control.Monad.IO.Class
 import Control.Applicative
 import Debug.Trace
 import qualified System.IO.Unsafe as IOU
-import Data.Conduit hiding (Done)
+import Data.Conduit hiding (Done,sequence)
 import qualified Data.Conduit.Binary as C
+import qualified Database.Redis as R
 
 redisHeader = BL8.pack "REDIS0003"
 
@@ -474,6 +475,36 @@ pushRDB (Just parser) !input = do liftIO $ mapM_ (\x -> if x == RDBNull then ret
                                      (!st,!p) = repParse input ([],Just parser)
 
 
+loadRDB :: ResourceIO m => R.Connection -> Sink B8.ByteString m (R.Redis (Either R.Reply R.Status))
+loadRDB c =
+  sinkState Nothing
+  (pushLoad c) 
+  (\state -> return (R.ping))
+
+saveObj :: RDBObj -> R.Redis ()
+saveObj RDBNull = do R.ping >> return ()
+saveObj (RDBPair (exp,key,RDBString val)) = R.set key val >> return ()
+saveObj (RDBPair (exp,key,RDBList vals)) = R.rpush key vals >> return ()
+saveObj (RDBPair (exp,key,RDBSet vals)) = R.sadd key vals >> return ()
+saveObj (RDBPair (exp,key,RDBZSet vals)) = (R.zadd key $ map (\(x,y) -> (y,x)) vals) >> return ()
+saveObj (RDBPair (exp,key,RDBHash vals)) = R.hmset key vals >> return ()
+
+
+pushLoad c Nothing !input = do liftIO $ R.runRedis c $ sequence_ $ map saveObj st
+                               return $ StateProcessing p
+                               where
+                                 (Done r l) = runGetPartial (getBytes 9) input
+                                 (!st,!p) = repParse l ([],Nothing)
+
+pushLoad c (Just parser) !input = do liftIO $ R.runRedis c $ sequence $ map saveObj st
+                                     return $ StateProcessing p
+                                      where
+                                        (!st,!p) = repParse input ([],Just parser)
+
+{-main = do-}
+       {-runResourceT $ C.sourceFile "./dump.rdb" $$ printRDB-}
+
 main = do
-       runResourceT $ C.sourceFile "./dump.rdb" $$ printRDB
+       conn <- R.connect R.defaultConnectInfo
+       runResourceT $ C.sourceFile "./source.rdb" $$ (loadRDB conn)
         
