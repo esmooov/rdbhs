@@ -456,11 +456,11 @@ repParse input (st,Just parser) = case result of
                                   where
                                    result = parser input
 
-
+printRDB :: ResourceIO m => Sink B8.ByteString m ()
 printRDB =
   sinkState Nothing
   pushRDB
-  (\state -> return ("Done"))
+  (\state -> return ())
 
 pushRDB Nothing input = do liftIO $ mapM_ (\x -> if x == RDBNull then return () else print x) st
                            return $ StateProcessing p
