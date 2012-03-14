@@ -483,11 +483,14 @@ loadRDB c =
 
 saveObj :: RDBObj -> R.Redis ()
 saveObj RDBNull = do R.ping >> return ()
-saveObj (RDBPair (exp,key,RDBString val)) = R.set key val >> return ()
-saveObj (RDBPair (exp,key,RDBList vals)) = R.rpush key vals >> return ()
-saveObj (RDBPair (exp,key,RDBSet vals)) = R.sadd key vals >> return ()
-saveObj (RDBPair (exp,key,RDBZSet vals)) = (R.zadd key $ map (\(x,y) -> (y,x)) vals) >> return ()
-saveObj (RDBPair (exp,key,RDBHash vals)) = R.hmset key vals >> return ()
+saveObj (RDBPair (exp,key,RDBString val)) = R.set key val >> setExpire exp key
+saveObj (RDBPair (exp,key,RDBList vals)) = R.rpush key vals >> setExpire exp key
+saveObj (RDBPair (exp,key,RDBSet vals)) = R.sadd key vals >> setExpire exp key
+saveObj (RDBPair (exp,key,RDBZSet vals)) = (R.zadd key $ map (\(x,y) -> (y,x)) vals) >> setExpire exp key
+saveObj (RDBPair (exp,key,RDBHash vals)) = R.hmset key vals >> setExpire exp key
+
+setExpire Nothing k = return ()
+setExpire (Just exp) k = R.expireat k exp >> return ()
 
 
 pushLoad c Nothing !input = do liftIO $ R.runRedis c $ sequence_ $ map saveObj st
