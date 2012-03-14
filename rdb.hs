@@ -61,7 +61,7 @@ data RDBObj = RDBString B8.ByteString |
               RDBPair (Maybe Integer,B8.ByteString,RDBObj) |
               RDBDatabase Integer [RDBObj] |
               RDBNull |
-              RDB [RDBObj] deriving (Show)
+              RDB [RDBObj] deriving (Show,Eq)
 
 toZsetPairs :: [B8.ByteString] -> [(B8.ByteString,Double)]
 toZsetPairs [] = []
@@ -427,8 +427,11 @@ getObjInc = do
                      skip 1
                      expire <- loadTimeMs
                      getPair (Just expire)
-                   0xfe -> return RDBNull
-                   0xff -> return RDBNull
+                   0xfe -> do
+                     return RDBNull
+                   0xff -> do
+                     skip 1
+                     return RDBNull
                    _ -> getPair Nothing
 
 {-main = do-}
@@ -439,14 +442,18 @@ getObjInc = do
        {-testf <- BL8.readFile "./dump.rdb"-}
        {-runGet (processRDB_ printRDBObj)  testf-}
 
+repParse "" _ = ([],Nothing)
+
 repParse input (st,Nothing) = case result of
                                    (Partial parser) -> (st,Just parser)
+                                   (Done !res "") -> (res:st,Just (\input -> Done RDBNull input))
                                    (Done !res !leftover) -> repParse leftover (res:st,Nothing)
                                 where
                                   result = runGetPartial getObjInc input
 
 repParse input (st,Just parser) = case result of
                                    (Partial parser) -> (st,Just parser)
+                                   (Done !res "") -> (res:st,Just (\input -> Done RDBNull input))
                                    (Done !res !leftover) -> repParse leftover (res:st,Nothing)
                                   where
                                    result = parser input
@@ -455,7 +462,7 @@ repParse input (st,Just parser) = case result of
 printRDB =
   sinkState Nothing
   pushRDB
-  (\state -> return (print "Done"))
+  (\state -> return ("Done"))
 
 pushRDB Nothing input = do liftIO $ mapM_ print st
                            return $ StateProcessing p
@@ -463,10 +470,12 @@ pushRDB Nothing input = do liftIO $ mapM_ print st
                               (Done r l) = runGetPartial (getBytes 9) input
                               (st,p) = repParse l ([],Nothing)
 
-pushRDB (Just parser) input = do liftIO $ mapM_ print st
-                                 return $ StateProcessing p
-                                 where
-                                  (st,p) = repParse input ([],Just parser)
+pushRDB (Just parser) input = if st == [] then return $ StateDone Nothing "Done"
+                              else do liftIO $ mapM_ print st
+                                      return $ StateProcessing p
+                                       where
+                                      (st,p) = repParse input ([],Just parser)
+
 
 main = do
        runResourceT $ C.sourceFile "./dump.rdb" $$ printRDB
